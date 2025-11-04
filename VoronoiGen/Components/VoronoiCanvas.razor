@@ -1,63 +1,204 @@
-@using SkiaSharp
-@using SkiaSharp.Views.Blazor
+@using System.Numerics
 @using VoronoiGen.Models
+@inject Microsoft.JSInterop.IJSRuntime JS
 
-@if (Result is null)
+@if (Boundary is null && Result is null)
 {
-    <p><!-- Canvas is idle until a boundary+result exists --></p>
+    <p><!-- Canvas is idle until a boundary or result exists --></p>
 }
 else
 {
-    <!-- Skia canvas draws boundary, seeds, then cells. Integrated with VoronoiEngine output. -->
-    <SKCanvasView OnPaintSurface="OnPaint" style="width:100%; height:480px; border:1px solid #ddd; display:block;" />
+    <canvas @ref="_canvasRef"
+            style="border:1px solid #ddd; display:block; width:@($"{CanvasWidth}px"); height:@($"{CanvasHeight}px");"></canvas>
+
+    @if (ShowDebug)
+    {
+        <div class="debug" style="font-family:monospace; font-size:12px; margin-top:4px; color:#333;">
+            <div>Cells: @(_cellCount) | Seeds: @(_seedCount) | BoundaryPts: @(_boundaryPts)</div>
+            <div>Bounds: L=@_lastBounds.Left:F2 T=@_lastBounds.Top:F2 W=@_lastBounds.Width:F2 H=@_lastBounds.Height:F2</div>
+            <div>Canvas: W=@_lastCanvasW H=@_lastCanvasH | Scale=@_lastScale:F6</div>
+        </div>
+    }
 }
 
 @code {
-    // Data to render — set by parent component (Home page)
+    [Parameter] public Polygon? Boundary { get; set; }
     [Parameter] public VoronoiResult? Result { get; set; }
+    [Parameter] public bool ShowDebug { get; set; } = true;
 
-    private void OnPaint(SKPaintSurfaceEventArgs e)
+    [Parameter] public int CanvasWidth { get; set; } = 1024;
+    [Parameter] public int CanvasHeight { get; set; } = 480;
+
+    private Microsoft.AspNetCore.Components.ElementReference _canvasRef;
+    private Microsoft.JSInterop.IJSObjectReference? _module;
+    private bool _moduleReady;
+    private bool _invalidateAfterRender;
+
+    // Debug state
+    private int _cellCount, _seedCount, _boundaryPts;
+    private RectD _lastBounds;
+    private int _lastCanvasW, _lastCanvasH;
+    private float _lastScale;
+
+    protected override void OnParametersSet()
     {
-        var canvas = e.Surface.Canvas;
-        canvas.Clear(SKColors.White);
-        if (Result is null) return;
-
-        // Fit world bounds to canvas with uniform scale
-        var bounds = Result.Boundary.GetBounds();
-        var scaleX = e.Info.Width / bounds.Width;
-        var scaleY = e.Info.Height / bounds.Height;
-        var scale = System.Math.Min(scaleX, scaleY);
-        canvas.Translate(-bounds.Left, -bounds.Top);
-        canvas.Scale((float)scale);
-
-        using var boundaryPaint = new SKPaint { Color = SKColors.Black, StrokeWidth = 2, IsStroke = true, IsAntialias = true };
-        using var seedPaint = new SKPaint { Color = SKColors.Red, StrokeWidth = 0, IsStroke = false, IsAntialias = true };
-        using var cellPaint = new SKPaint { Color = new SKColor(0, 0, 0, 200), StrokeWidth = 1, IsStroke = true, IsAntialias = true };
-
-        // Draw cells first
-        foreach (var cell in Result.Cells)
+        if (Boundary is not null || Result is not null)
         {
-            if (cell.Points.Count < 3) continue;
-            using var path = new SKPath();
-            path.MoveTo(cell.Points[0]);
-            for (int i = 1; i < cell.Points.Count; i++) path.LineTo(cell.Points[i]);
-            path.Close();
-            canvas.DrawPath(path, cellPaint);
+            if (_moduleReady)
+                _ = RenderAsync();
+            else
+                _invalidateAfterRender = true;
         }
 
-        // Draw boundary on top
-        using (var bPath = new SKPath())
+        base.OnParametersSet();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
         {
-            bPath.MoveTo(Result.Boundary.Points[0]);
-            for (int i = 1; i < Result.Boundary.Points.Count; i++) bPath.LineTo(Result.Boundary.Points[i]);
-            bPath.Close();
-            canvas.DrawPath(bPath, boundaryPaint);
+            _module = await JS.InvokeAsync<Microsoft.JSInterop.IJSObjectReference>("import", "/js/voronoiCanvas.js");
+            _moduleReady = true;
         }
 
-        // Draw seeds
-        foreach (var s in Result.Seeds)
+        if (_invalidateAfterRender && _moduleReady)
         {
-            canvas.DrawCircle(s, 2f / (float)scale, seedPaint); // keep visual size constant
+            _invalidateAfterRender = false;
+            await RenderAsync();
+        }
+
+        await base.OnAfterRenderAsync(firstRender);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_module is not null)
+        {
+            try { await _module.DisposeAsync(); } catch { /* ignore */ }
         }
     }
+
+    private async Task RenderAsync()
+    {
+        if (!_moduleReady || _module is null) return;
+
+        try
+        {
+            var boundary = Result?.Boundary ?? Boundary;
+            if (boundary is null || boundary.Points.Count < 3)
+            {
+                var prepOnly = await _module.InvokeAsync<PrepareResult>("prepareCanvas", _canvasRef, CanvasWidth, CanvasHeight);
+                _lastCanvasW = prepOnly.pixelWidth;
+                _lastCanvasH = prepOnly.pixelHeight;
+                await _module.InvokeVoidAsync("clearCanvas", _canvasRef, _lastCanvasW, _lastCanvasH);
+                return;
+            }
+
+            var prep = await _module.InvokeAsync<PrepareResult>("prepareCanvas", _canvasRef, CanvasWidth, CanvasHeight);
+            var pixelW = prep.pixelWidth;
+            var pixelH = prep.pixelHeight;
+            _lastCanvasW = pixelW;
+            _lastCanvasH = pixelH;
+
+            // Compute bounds locally (no dependency on model-provided bounds)
+            var bounds = ComputeBounds(boundary.Points);
+            _lastBounds = bounds;
+            if (bounds.Width <= 0 || bounds.Height <= 0)
+            {
+                await _module.InvokeVoidAsync("clearCanvas", _canvasRef, pixelW, pixelH);
+                return;
+            }
+
+            var scaleX = pixelW / bounds.Width;
+            var scaleY = pixelH / bounds.Height;
+            var scale = (float)Math.Min(scaleX, scaleY);
+            _lastScale = scale;
+
+            var contentW = bounds.Width * scale;
+            var contentH = bounds.Height * scale;
+            var offsetX = (pixelW - contentW) * 0.5;
+            var offsetY = (pixelH - contentH) * 0.5;
+
+            _cellCount = Result?.Cells?.Count ?? 0;
+            _seedCount = Result?.Seeds?.Count ?? 0;
+            _boundaryPts = boundary.Points.Count;
+
+            var boundaryFlat = ToFlatArray(boundary.Points);
+
+            double[][] cellsFlat = Array.Empty<double[]>();
+            if (Result?.Cells is { Count: > 0 } cells)
+            {
+                cellsFlat = cells
+                    .Where(c => c.Points.Count >= 3)
+                    .Select(c => ToFlatArray(c.Points))
+                    .ToArray();
+            }
+            var nonEmpty = cellsFlat.Length;
+
+            var seedsFlat = Result?.Seeds is { Count: > 0 } seeds
+                ? ToFlatArray(seeds)
+                : Array.Empty<double>();
+
+            var hud = ShowDebug
+                ? new[]
+                {
+                    $"cells:{_cellCount} nonEmpty:{nonEmpty}",
+                    $"scale:{scale:F6}",
+                    $"bounds: {bounds.Left:F1},{bounds.Top:F1} {bounds.Width:F1}x{bounds.Height:F1}"
+                }
+                : Array.Empty<string>();
+
+            var payload = new
+            {
+                pixelWidth = pixelW,
+                pixelHeight = pixelH,
+                boundsLeft = bounds.Left,
+                boundsTop = bounds.Top,
+                offsetX,
+                offsetY,
+                scale,
+                boundary = boundaryFlat,
+                cells = cellsFlat,
+                seeds = seedsFlat,
+                showDebug = ShowDebug,
+                hudLines = hud
+            };
+
+            await _module.InvokeVoidAsync("drawVoronoi", _canvasRef, payload);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("[VoronoiCanvas] RenderAsync exception: " + ex);
+        }
+    }
+
+    private static RectD ComputeBounds(IReadOnlyList<Vector2> pts)
+    {
+        if (pts.Count == 0) return default;
+        double minX = pts[0].X, maxX = pts[0].X, minY = pts[0].Y, maxY = pts[0].Y;
+        for (int i = 1; i < pts.Count; i++)
+        {
+            var p = pts[i];
+            if (p.X < minX) minX = p.X;
+            if (p.X > maxX) maxX = p.X;
+            if (p.Y < minY) minY = p.Y;
+            if (p.Y > maxY) maxY = p.Y;
+        }
+        return new RectD(minX, minY, Math.Max(0, maxX - minX), Math.Max(0, maxY - minY));
+    }
+
+    private static double[] ToFlatArray(IReadOnlyList<Vector2> points)
+    {
+        var arr = new double[points.Count * 2];
+        for (int i = 0, j = 0; i < points.Count; i++, j += 2)
+        {
+            arr[j] = points[i].X;
+            arr[j + 1] = points[i].Y;
+        }
+        return arr;
+    }
+
+    private record struct RectD(double Left, double Top, double Width, double Height);
+
+    private record PrepareResult(int pixelWidth, int pixelHeight, double dpr);
 }

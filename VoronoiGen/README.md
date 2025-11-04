@@ -6,9 +6,9 @@ client-side web tool: user uploads a dxf outline, tool generates a voronoi patte
 ## architecture
 - **frontend/runtime**: blazor webassembly (.net 9)
 - **hosting**: cloudflare pages (static files) + cloudflare workers (edge html injection, seo, headers)
-- **rendering**: skiasharp wasm via `SkiaSharp.Views.Blazor` (fallback to plain canvas if needed)
+- **rendering**: canvas 2d: draw via jsinterop, hardware accelerated, minimal bundle size.
 - **geometry libs**:
-  - dxf i/o: `netDxf`
+  - dxf i/o: `IxMilia.Dxf`
   - voronoi: `VoronoiLib` or `MIConvexHull`
   - polygon ops: `Clipper2`
 - **cdn**: automatic via cloudflare global edge cache
@@ -16,7 +16,7 @@ client-side web tool: user uploads a dxf outline, tool generates a voronoi patte
 
 ## core flow
 1. **parse dxf**
-   - load with `netDxf`
+   - load with `IxMilia.Dxf`
    - extract closed polylines (approximate arcs/splines using chord tolerance)
    - pick largest-area polygon as outer boundary
    - simplify boundary with Douglas-Peucker (tolerance param)
@@ -37,7 +37,7 @@ client-side web tool: user uploads a dxf outline, tool generates a voronoi patte
 
 5. **export**
    - **svg**: one path per cell, correct viewBox
-   - **dxf**: write each cell as closed `LWPOLYLINE` via `netDxf`
+   - **dxf**: write each cell as closed `LWPOLYLINE` via `IxMilia.Dxf`
 
 6. **ui parameters**
    - seed count or density
@@ -73,7 +73,7 @@ client-side web tool: user uploads a dxf outline, tool generates a voronoi patte
 
 ## nuget packages
 - `SkiaSharp.Views.Blazor`
-- `netDxf`
+- `IxMilia.Dxf`
 - `Clipper2`
 - `VoronoiLib` or `MIConvexHull`
 

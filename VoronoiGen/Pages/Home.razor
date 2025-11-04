@@ -1,51 +1,78 @@
 ﻿@page "/"
-@using SkiaSharp
 @using VoronoiGen.Models
 @using VoronoiGen.Services
+@using System.Numerics;
 
 <PageTitle>Voronoi DXF Tool</PageTitle>
 
-<h1>Voronoi DXF — MVP</h1>
+<h1>Voronoi DXF — Holes + Offsets</h1>
 
-<!-- Inline workflow notes: upload DXF -> parse to boundary -> generate seeds -> compute voronoi -> preview -> export SVG -->
+<!-- Upload DXF -->
 <InputFile OnChange="OnFileSelected" accept=".dxf" />
 
-<div class="controls" style="margin-top:1rem;">
-    <label>Seed Count
-        <input type="number" min="1" max="2000" @bind="SeedCount" />
+<div class="controls" style="margin-top:1rem; display:flex; gap:1rem; align-items:center; flex-wrap:wrap;">
+    <label>
+        Use Holes
+        <input type="checkbox" @bind="UseHoles" />
     </label>
-    <label style="margin-left:1rem;">RNG Seed
+    <label>
+        Outer Offset
+        <input type="number" step="0.5" @bind="OuterOffset" />
+    </label>
+    <label>
+        Inner Offset
+        <input type="number" step="0.5" @bind="InnerOffset" />
+    </label>
+    <label>
+        Min Spacing (Poisson Radius)
+        <input type="number" step="0.5" min="1" @bind="PoissonRadius" />
+    </label>
+    <label>
+        Seed Count
+        <input type="number" min="1" max="5000" @bind="SeedCount" />
+    </label>
+    <label>
+        RNG Seed
         <input type="number" @bind="RngSeed" />
     </label>
-    <button @onclick="Generate" disabled="@(_boundary is null)">Generate</button>
+    <label>
+        Lloyd Iterations
+        <input type="number" min="0" max="10" @bind="LloydIterations" />
+    </label>
+    <button @onclick="Generate" disabled="@(_import is null)">Generate</button>
     <button @onclick="ExportSvg" disabled="@(Result is null)">Export SVG</button>
+    <button @onclick="ExportDxf" disabled="@(Result is null)">Export DXF</button>
 </div>
 
-@if (_boundary is null)
+@if (_import?.Outer is null)
 {
     <p>Upload a DXF file with a closed outline to begin.</p>
 }
 else
 {
-    <p>Boundary loaded. Area: @_boundary.Area():F0. Click Generate to compute Voronoi.</p>
-    <VoronoiCanvas Result="Result" />
+    <p>Boundary loaded. Area: @_import!.Outer.Area():F0. Holes: @_import!.Holes.Count. Click Generate.</p>
+    <VoronoiCanvas Boundary="_effectiveBoundary" Result="Result" CanvasWidth="1024" CanvasHeight="480" />
 }
 
 @code {
-    // State: boundary loaded from DXF, seeds, and current result
-    private Polygon? _boundary;
-    private List<SKPoint> _seeds = new();
+    private DxfImport? _import;
+    private Polygon? _effectiveBoundary; // after outer offset for preview
+    private List<Vector2> _seeds = new();
 
-    // UI params (MVP subset)
+    // UI params
+    private bool UseHoles { get; set; } = true;
+    private double OuterOffset { get; set; } = 0; // positive = grow; negative = shrink
+    private double InnerOffset { get; set; } = 0; // positive = grow holes outward (we implement as inward shrink magnitude)
+
     private int SeedCount { get; set; } = 200;
     private int RngSeed { get; set; } = 12345;
+    private float PoissonRadius { get; set; } = 10f;
+    private int LloydIterations { get; set; } = 0;
 
-    // Latest result bound into canvas and exporter
     public VoronoiResult? Result { get; set; }
 
     private async Task OnFileSelected(InputFileChangeEventArgs e)
     {
-        // Parse DXF bytes fully client-side via DxfLoader
         var file = e.File;
         await using var stream = file.OpenReadStream(maxAllowedSize: 50 * 1024 * 1024);
         using var ms = new MemoryStream();
@@ -54,24 +81,40 @@ else
 
         try
         {
-            var import = DxfLoader.Load(bytes, chordTolerance: 0.5, simplifyTolerance: 0.2);
-            _boundary = import.Outer;
-            Result = null; // reset view
+            _import = DxfLoader.Load(bytes, chordTolerance: 0.5, simplifyTolerance: 0.2);
+            _effectiveBoundary = _import.Outer;
+            Result = null;
+            StateHasChanged();
         }
         catch (Exception ex)
         {
             Console.Error.WriteLine(ex);
-            _boundary = null;
+            _import = null;
+            _effectiveBoundary = null;
             Result = null;
+            StateHasChanged();
         }
     }
 
     private Task Generate()
     {
-        if (_boundary is null) return Task.CompletedTask;
-        // Seeds via SeedGenerator, then Voronoi via VoronoiEngine
-        _seeds = SeedGenerator.GenerateRandom(_boundary, SeedCount, RngSeed);
-        Result = VoronoiEngine.Compute(_boundary, _seeds);
+        if (_import is null) return Task.CompletedTask;
+        var boundary = _import.Outer;
+        var holes = UseHoles ? _import.Holes : new List<Polygon>();
+
+        // Seed generation respects holes when enabled
+        _seeds = SeedGenerator.GeneratePoisson(boundary, holes, !UseHoles, PoissonRadius, RngSeed);
+        if (_seeds.Count == 0 && SeedCount > 0)
+        {
+            _seeds = SeedGenerator.GenerateRandom(boundary, holes, !UseHoles, SeedCount, RngSeed);
+        }
+
+        // Effective preview boundary (outer offset only)
+        _effectiveBoundary = OuterOffset == 0 ? boundary : GeometryUtils.OffsetPolygon(boundary, OuterOffset);
+
+        Result = LloydIterations > 0
+            ? VoronoiEngine.ComputeWithLloyd(boundary, holes, !UseHoles, _seeds, LloydIterations, OuterOffset, InnerOffset)
+            : VoronoiEngine.Compute(boundary, holes, !UseHoles, _seeds, OuterOffset, InnerOffset);
         StateHasChanged();
         return Task.CompletedTask;
     }
@@ -80,11 +123,19 @@ else
     {
         if (Result is null) return;
         var svg = SvgExporter.Export(Result, strokeWidth: 1f);
-        // Provide as a downloadable file via JS interop-free approach: data URL navigation
         var bytes = System.Text.Encoding.UTF8.GetBytes(svg);
         var base64 = Convert.ToBase64String(bytes);
-        var url = $"data:image/svg+xml;base64,{base64}";
-        JS.InvokeVoidAsync("open", url, "_blank");
+        var timestamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
+        JS.InvokeVoidAsync("voronoiGen.downloadBlob", base64, "image/svg+xml", $"voronoi-{timestamp}.svg");
+    }
+
+    private void ExportDxf()
+    {
+        if (Result is null) return;
+        var bytes = DxfExporter.Export(Result);
+        var base64 = Convert.ToBase64String(bytes);
+        var timestamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
+        JS.InvokeVoidAsync("voronoiGen.downloadBlob", base64, "application/dxf", $"voronoi-{timestamp}.dxf");
     }
 
     [Inject] private IJSRuntime JS { get; set; } = default!;
