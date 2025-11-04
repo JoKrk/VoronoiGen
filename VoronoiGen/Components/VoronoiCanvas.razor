@@ -14,7 +14,7 @@ else
     @if (ShowDebug)
     {
         <div class="debug" style="font-family:monospace; font-size:12px; margin-top:4px; color:#333;">
-            <div>Cells: @(_cellCount) | Seeds: @(_seedCount) | BoundaryPts: @(_boundaryPts)</div>
+            <div>Cells: @(_cellCount) | Seeds: @(_seedCount) | BoundaryPts: @(_boundaryPts) | Holes: @(_holeCount)</div>
             <div>Bounds: L=@_lastBounds.Left:F2 T=@_lastBounds.Top:F2 W=@_lastBounds.Width:F2 H=@_lastBounds.Height:F2</div>
             <div>Canvas: W=@_lastCanvasW H=@_lastCanvasH | Scale=@_lastScale:F6</div>
         </div>
@@ -24,6 +24,8 @@ else
 @code {
     [Parameter] public Polygon? Boundary { get; set; }
     [Parameter] public VoronoiResult? Result { get; set; }
+    [Parameter] public List<Polygon>? Holes { get; set; }
+    [Parameter] public bool ShowHoles { get; set; } = true;
     [Parameter] public bool ShowDebug { get; set; } = true;
 
     [Parameter] public int CanvasWidth { get; set; } = 1024;
@@ -35,7 +37,7 @@ else
     private bool _invalidateAfterRender;
 
     // Debug state
-    private int _cellCount, _seedCount, _boundaryPts;
+    private int _cellCount, _seedCount, _boundaryPts, _holeCount;
     private RectD _lastBounds;
     private int _lastCanvasW, _lastCanvasH;
     private float _lastScale;
@@ -122,6 +124,7 @@ else
             _cellCount = Result?.Cells?.Count ?? 0;
             _seedCount = Result?.Seeds?.Count ?? 0;
             _boundaryPts = boundary.Points.Count;
+            _holeCount = Holes?.Count ?? 0;
 
             var boundaryFlat = ToFlatArray(boundary.Points);
 
@@ -139,12 +142,23 @@ else
                 ? ToFlatArray(seeds)
                 : Array.Empty<double>();
 
+            // Flatten holes for rendering
+            double[][] holesFlat = Array.Empty<double[]>();
+            if (Holes is { Count: > 0 })
+            {
+                holesFlat = Holes
+                    .Where(h => h.Points.Count >= 3)
+                    .Select(h => ToFlatArray(h.Points))
+                    .ToArray();
+            }
+
             var hud = ShowDebug
                 ? new[]
                 {
                     $"cells:{_cellCount} nonEmpty:{nonEmpty}",
                     $"scale:{scale:F6}",
-                    $"bounds: {bounds.Left:F1},{bounds.Top:F1} {bounds.Width:F1}x{bounds.Height:F1}"
+                    $"bounds: {bounds.Left:F1},{bounds.Top:F1} {bounds.Width:F1}x{bounds.Height:F1}",
+                    $"holes:{_holeCount}"
                 }
                 : Array.Empty<string>();
 
@@ -160,6 +174,8 @@ else
                 boundary = boundaryFlat,
                 cells = cellsFlat,
                 seeds = seedsFlat,
+                holes = holesFlat,
+                showHoles = ShowHoles,
                 showDebug = ShowDebug,
                 hudLines = hud
             };

@@ -26,6 +26,7 @@ export function drawVoronoi(canvas, data) {
         boundsLeft, boundsTop,
         offsetX, offsetY, scale,
         boundary, cells, seeds,
+        holes, showHoles,
         showDebug, hudLines
     } = data;
 
@@ -71,6 +72,21 @@ export function drawVoronoi(canvas, data) {
         for (let i = 2; i < boundary.length; i += 2) ctx.lineTo(boundary[i], boundary[i + 1]);
         ctx.closePath();
         ctx.stroke();
+    }
+
+    // Holes (internal contours) - draw when showHoles is enabled
+    if (showHoles && Array.isArray(holes) && holes.length > 0) {
+        ctx.strokeStyle = '#ff0000';
+        ctx.lineWidth = 2 / scale;
+        for (let h = 0; h < holes.length; h++) {
+            const holeFlat = holes[h];
+            if (!holeFlat || holeFlat.length < 6) continue;
+            ctx.beginPath();
+            ctx.moveTo(holeFlat[0], holeFlat[1]);
+            for (let i = 2; i < holeFlat.length; i += 2) ctx.lineTo(holeFlat[i], holeFlat[i + 1]);
+            ctx.closePath();
+            ctx.stroke();
+        }
     }
 
     // Seeds

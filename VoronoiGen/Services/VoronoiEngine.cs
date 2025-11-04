@@ -7,7 +7,7 @@ using VoronoiGen.Models;
 namespace VoronoiGen.Services
 {
     // Computes Voronoi diagram via half-plane clipping against polygon-with-holes and optional offsets.
-    // Adds optional Lloyd relaxation iterations: recompute seeds at cell centroids and repeat.
+    // Offsets only affect cell clipping; the returned boundary is always the original.
     public static class VoronoiEngine
     {
         public static VoronoiResult Compute(Polygon boundary, List<Vector2> seeds)
@@ -20,21 +20,26 @@ namespace VoronoiGen.Services
             return ComputeWithLloyd(boundary, holes: null, ignoreHoles: true, seeds: seeds, iterations: iterations, outerOffset: 0, innerOffset: 0);
         }
 
-        // New overloads that support: holes + inset/outset offsets for boundaries
-        // outerOffset: positive value shrinks the boundary inward (creating an inset margin)
-        // innerOffset: positive value grows holes outward (creating a margin around holes)
+        // Offsets:
+        // - outerOffset: inset-only (positive values are clamped to 0 so cells never extend outside the original boundary)
+        // - innerOffset: positive grows holes outward (larger forbidden regions)
         public static VoronoiResult Compute(Polygon boundary, List<Polygon>? holes, bool ignoreHoles, List<Vector2> seeds, double outerOffset, double innerOffset)
         {
-            // Build effective clipping polygon(s) with offsets. We apply offsets using a simple vertex-normal displacement for small values.
-            // For robustness you'd usually use Clipper2 offsetting; but to keep dependencies minimal at runtime, we'll approximate here.
-            var clipOuter = outerOffset == 0 ? boundary : GeometryUtils.OffsetPolygon(boundary, outerOffset);
+            // Enforce: never allow cells outside the original boundary.
+            // 1) Clamp outer offset to inset-only.
+            var effectiveOuterOffset = Math.Min(outerOffset, 0.0);
+            var clipOuter = effectiveOuterOffset == 0 ? boundary : GeometryUtils.OffsetPolygon(boundary, effectiveOuterOffset);
+
+            // 2) Holes may grow with innerOffset (positive = grow outward).
             var clipHoles = (!ignoreHoles && holes is { Count: > 0 })
-                ? holes.Select(h => innerOffset == 0 ? h : GeometryUtils.OffsetPolygon(h, -innerOffset)).ToList()
+                ? holes.Select(h => innerOffset == 0 ? h : GeometryUtils.OffsetPolygon(h, innerOffset)).ToList()
                 : new List<Polygon>();
 
             var openBoundary = ToOpen(clipOuter.Points)
                 .Select(p => (X: (double)p.X, Y: (double)p.Y))
                 .ToList();
+
+            var originalOpen = ToOpen(boundary.Points); // used to enforce final inside-clip to original boundary
 
             var cells = new List<Polygon>(seeds.Count);
 
@@ -43,6 +48,7 @@ namespace VoronoiGen.Services
                 var cell = new List<(double X, double Y)>(openBoundary);
                 var A = seeds[i];
 
+                // Voronoi half-plane clipping
                 for (int j = 0; j < seeds.Count; j++)
                 {
                     if (i == j) continue;
@@ -61,18 +67,22 @@ namespace VoronoiGen.Services
 
                 if (cell.Count >= 3)
                 {
-                    // remove holes by clipping them out (Sutherland-Hodgman against each hole's half-planes)
+                    // Remove holes by clipping them out (keep outside each hole)
                     if (clipHoles.Count > 0)
                     {
                         foreach (var hole in clipHoles)
                         {
                             var openHole = ToOpen(hole.Points);
                             if (openHole.Count < 3) continue;
-                            // Clip cell with the complement of the hole: keep points outside the hole.
-                            // To do this with half-planes, we invert the inequality for each edge of the hole polygon.
                             cell = ClipOutsidePolygon(cell, openHole);
                             if (cell.Count < 3) break;
                         }
+                    }
+
+                    // Final safety: force cells to lie inside the ORIGINAL boundary (never outside)
+                    if (cell.Count >= 3 && originalOpen.Count >= 3)
+                    {
+                        cell = ClipInsidePolygon(cell, originalOpen);
                     }
 
                     if (cell.Count >= 3)
@@ -96,7 +106,8 @@ namespace VoronoiGen.Services
                 }
             }
 
-            return new VoronoiResult(clipOuter, cells, seeds);
+            // Return ORIGINAL boundary so consumers never see any offset boundaries.
+            return new VoronoiResult(boundary, cells, seeds);
         }
 
         public static VoronoiResult ComputeWithLloyd(Polygon boundary, List<Polygon>? holes, bool ignoreHoles, List<Vector2> seeds, int iterations, double outerOffset, double innerOffset)
@@ -137,25 +148,18 @@ namespace VoronoiGen.Services
 
                 if (ic && inn)
                 {
-                    // in -> in : keep next
                     res.Add(next);
                 }
                 else if (ic && !inn)
                 {
-                    // in -> out : keep intersection
                     var inter = IntersectAtZeroD(curr, next, fc, fn);
                     res.Add(inter);
                 }
                 else if (!ic && inn)
                 {
-                    // out -> in : add intersection then next
                     var inter = IntersectAtZeroD(curr, next, fc, fn);
                     res.Add(inter);
                     res.Add(next);
-                }
-                else
-                {
-                    // out -> out : keep nothing
                 }
             }
 
@@ -168,14 +172,11 @@ namespace VoronoiGen.Services
             return res;
         }
 
-        // Clip polygon against the outside of another polygon (hole): we keep points that are NOT inside the hole.
+        // Clip polygon against the outside of another polygon (hole): keep points NOT inside the hole.
         private static List<(double X, double Y)> ClipOutsidePolygon(List<(double X, double Y)> poly, IReadOnlyList<Vector2> hole)
         {
-            // Implement by clipping against each edge's outward half-plane for the hole.
-            // Assume hole orientation is CW; if not, compute orientation.
             if (poly.Count < 3 || hole.Count < 3) return poly;
 
-            // Work in doubles for stability
             bool holeCcw = SignedArea(hole) > 0;
 
             var cur = poly;
@@ -185,17 +186,80 @@ namespace VoronoiGen.Services
                 var b = hole[(i + 1) % hole.Count];
                 double ex = b.X - a.X;
                 double ey = b.Y - a.Y;
-                // outward normal depends on orientation: for CW hole, outward is +left of edge reversed -> use right normal of edge
+
+                // Use right normal for CCW to keep outside, left normal for CW
                 double nx = holeCcw ? ex : -ex;
                 double ny = holeCcw ? ey : -ey;
-                // rotate to get outward normal (right normal of edge vector (ex,ey) is (ey,-ex))
-                double onx = ny;      // ey
-                double ony = -nx;     // -ex
-                // plane: n·X <= c to keep outside side: compute c using point a on the boundary
+                double onx = ny;      // right normal
+                double ony = -nx;
+
+                // keep outside: n·X >= c  => use -n and -c with our <= test
                 double c = onx * a.X + ony * a.Y;
-                cur = ClipWithHalfPlaneD(cur, onx, ony, c);
+                cur = ClipWithHalfPlaneD(cur, -onx, -ony, -c);
                 if (cur.Count < 3) break;
             }
+            return cur;
+        }
+
+        // Clip polygon to the INSIDE of a polygon (Sutherland–Hodgman using cross product sign).
+        private static List<(double X, double Y)> ClipInsidePolygon(List<(double X, double Y)> poly, IReadOnlyList<Vector2> clip)
+        {
+            if (poly.Count < 3 || clip.Count < 3) return poly;
+
+            bool ccw = SignedArea(clip) > 0;
+            var cur = poly;
+
+            for (int i = 0; i < clip.Count; i++)
+            {
+                var a = clip[i];
+                var b = clip[(i + 1) % clip.Count];
+
+                double ex = b.X - a.X;
+                double ey = b.Y - a.Y;
+
+                // signed side function using cross(e, p-a)
+                double Side((double X, double Y) p) => ex * (p.Y - a.Y) - ey * (p.X - a.X);
+
+                var nextPoly = new List<(double X, double Y)>(cur.Count);
+                for (int k = 0; k < cur.Count; k++)
+                {
+                    var p = cur[k];
+                    var q = cur[(k + 1) % cur.Count];
+
+                    double fp = Side(p);
+                    double fq = Side(q);
+
+                    bool inP = ccw ? fp >= -1e-9 : fp <= 1e-9; // inside is left-of-edge for CCW
+                    bool inQ = ccw ? fq >= -1e-9 : fq <= 1e-9;
+
+                    if (inP && inQ)
+                    {
+                        nextPoly.Add(q);
+                    }
+                    else if (inP && !inQ)
+                    {
+                        var inter = IntersectAtZeroD(p, q, fp, fq);
+                        nextPoly.Add(inter);
+                    }
+                    else if (!inP && inQ)
+                    {
+                        var inter = IntersectAtZeroD(p, q, fp, fq);
+                        nextPoly.Add(inter);
+                        nextPoly.Add(q);
+                    }
+                }
+
+                cur = nextPoly;
+                if (cur.Count < 3) break;
+            }
+
+            // remove potential duplicate consecutive points
+            for (int i = cur.Count - 2; i >= 0; i--)
+            {
+                if (DistanceD(cur[i], cur[i + 1]) < 1e-9)
+                    cur.RemoveAt(i + 1);
+            }
+
             return cur;
         }
 

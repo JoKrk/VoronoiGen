@@ -1,7 +1,8 @@
 ﻿@page "/"
 @using VoronoiGen.Models
 @using VoronoiGen.Services
-@using System.Numerics;
+@using System.Numerics
+@using System.Linq
 
 <PageTitle>Voronoi DXF Tool</PageTitle>
 
@@ -15,13 +16,13 @@
         Use Holes
         <input type="checkbox" @bind="UseHoles" />
     </label>
-    <label>
+    <label title="Inset-only. Positive values are not allowed.">
         Outer Offset
-        <input type="number" step="0.5" @bind="OuterOffset" />
+        <input type="number" step="0.5" max="0" @bind="OuterOffset" />
     </label>
-    <label>
+    <label title="Grow hole masks outward.">
         Inner Offset
-        <input type="number" step="0.5" @bind="InnerOffset" />
+        <input type="number" step="0.5" min="0" @bind="InnerOffset" />
     </label>
     <label>
         Min Spacing (Poisson Radius)
@@ -51,18 +52,39 @@
 else
 {
     <p>Boundary loaded. Area: @_import!.Outer.Area():F0. Holes: @_import!.Holes.Count. Click Generate.</p>
-    <VoronoiCanvas Boundary="_effectiveBoundary" Result="Result" CanvasWidth="1024" CanvasHeight="480" />
+    <!-- Keep viewport anchored to original DXF geometry -->
+    <VoronoiCanvas Boundary="_import!.Outer"
+                   Holes="@(UseHoles ? _import!.Holes : null)"
+                   ShowHoles="UseHoles"
+                   Result="Result"
+                   CanvasWidth="1024"
+                   CanvasHeight="480" />
 }
 
 @code {
     private DxfImport? _import;
-    private Polygon? _effectiveBoundary; // after outer offset for preview
+    private Polygon? _effectiveBoundary; // optional preview (not used for canvas)
+    private List<Polygon>? _effectiveHoles; // optional preview (not used for canvas)
     private List<Vector2> _seeds = new();
 
     // UI params
     private bool UseHoles { get; set; } = true;
-    private double OuterOffset { get; set; } = 0; // positive = grow; negative = shrink
-    private double InnerOffset { get; set; } = 0; // positive = grow holes outward (we implement as inward shrink magnitude)
+
+    // Clamp in setters to enforce UI limits regardless of the HTML attributes.
+    private double _outerOffset = 0; // inset-only
+    private double _innerOffset = 0; // non-negative
+
+    private double OuterOffset
+    {
+        get => _outerOffset;
+        set => _outerOffset = Math.Min(0, value); // never outward grow
+    }
+
+    private double InnerOffset
+    {
+        get => _innerOffset;
+        set => _innerOffset = Math.Max(0, value); // never negative
+    }
 
     private int SeedCount { get; set; } = 200;
     private int RngSeed { get; set; } = 12345;
@@ -83,6 +105,7 @@ else
         {
             _import = DxfLoader.Load(bytes, chordTolerance: 0.5, simplifyTolerance: 0.2);
             _effectiveBoundary = _import.Outer;
+            _effectiveHoles = UseHoles ? _import.Holes : null;
             Result = null;
             StateHasChanged();
         }
@@ -91,6 +114,7 @@ else
             Console.Error.WriteLine(ex);
             _import = null;
             _effectiveBoundary = null;
+            _effectiveHoles = null;
             Result = null;
             StateHasChanged();
         }
@@ -99,22 +123,28 @@ else
     private Task Generate()
     {
         if (_import is null) return Task.CompletedTask;
-        var boundary = _import.Outer;
-        var holes = UseHoles ? _import.Holes : new List<Polygon>();
 
-        // Seed generation respects holes when enabled
-        _seeds = SeedGenerator.GeneratePoisson(boundary, holes, !UseHoles, PoissonRadius, RngSeed);
+        var boundary = _import.Outer;
+        var rawHoles = UseHoles ? _import.Holes : new List<Polygon>();
+
+        // (Optional) compute effective geometry if you want, but don't feed it to the canvas
+        _effectiveBoundary = _outerOffset == 0 ? boundary : GeometryUtils.OffsetPolygon(boundary, _outerOffset);
+        _effectiveHoles = UseHoles
+            ? (_innerOffset == 0 ? rawHoles : rawHoles.Select(h => GeometryUtils.OffsetPolygon(h, _innerOffset)).ToList())
+            : null;
+
+        // Generate seeds against the original DXF geometry to keep visuals stable
+        _seeds = SeedGenerator.GeneratePoisson(boundary, rawHoles, !UseHoles, PoissonRadius, RngSeed);
         if (_seeds.Count == 0 && SeedCount > 0)
         {
-            _seeds = SeedGenerator.GenerateRandom(boundary, holes, !UseHoles, SeedCount, RngSeed);
+            _seeds = SeedGenerator.GenerateRandom(boundary, rawHoles, !UseHoles, SeedCount, RngSeed);
         }
 
-        // Effective preview boundary (outer offset only)
-        _effectiveBoundary = OuterOffset == 0 ? boundary : GeometryUtils.OffsetPolygon(boundary, OuterOffset);
-
+        // Compute Voronoi using offsets (affects clipping only; canvas remains anchored)
         Result = LloydIterations > 0
-            ? VoronoiEngine.ComputeWithLloyd(boundary, holes, !UseHoles, _seeds, LloydIterations, OuterOffset, InnerOffset)
-            : VoronoiEngine.Compute(boundary, holes, !UseHoles, _seeds, OuterOffset, InnerOffset);
+            ? VoronoiEngine.ComputeWithLloyd(boundary, rawHoles, !UseHoles, _seeds, LloydIterations, _outerOffset, _innerOffset)
+            : VoronoiEngine.Compute(boundary, rawHoles, !UseHoles, _seeds, _outerOffset, _innerOffset);
+
         StateHasChanged();
         return Task.CompletedTask;
     }
