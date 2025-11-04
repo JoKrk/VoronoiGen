@@ -1,0 +1,63 @@
+@using SkiaSharp
+@using SkiaSharp.Views.Blazor
+@using VoronoiGen.Models
+
+@if (Result is null)
+{
+    <p><!-- Canvas is idle until a boundary+result exists --></p>
+}
+else
+{
+    <!-- Skia canvas draws boundary, seeds, then cells. Integrated with VoronoiEngine output. -->
+    <SKCanvasView OnPaintSurface="OnPaint" style="width:100%; height:480px; border:1px solid #ddd; display:block;" />
+}
+
+@code {
+    // Data to render — set by parent component (Home page)
+    [Parameter] public VoronoiResult? Result { get; set; }
+
+    private void OnPaint(SKPaintSurfaceEventArgs e)
+    {
+        var canvas = e.Surface.Canvas;
+        canvas.Clear(SKColors.White);
+        if (Result is null) return;
+
+        // Fit world bounds to canvas with uniform scale
+        var bounds = Result.Boundary.GetBounds();
+        var scaleX = e.Info.Width / bounds.Width;
+        var scaleY = e.Info.Height / bounds.Height;
+        var scale = System.Math.Min(scaleX, scaleY);
+        canvas.Translate(-bounds.Left, -bounds.Top);
+        canvas.Scale((float)scale);
+
+        using var boundaryPaint = new SKPaint { Color = SKColors.Black, StrokeWidth = 2, IsStroke = true, IsAntialias = true };
+        using var seedPaint = new SKPaint { Color = SKColors.Red, StrokeWidth = 0, IsStroke = false, IsAntialias = true };
+        using var cellPaint = new SKPaint { Color = new SKColor(0, 0, 0, 200), StrokeWidth = 1, IsStroke = true, IsAntialias = true };
+
+        // Draw cells first
+        foreach (var cell in Result.Cells)
+        {
+            if (cell.Points.Count < 3) continue;
+            using var path = new SKPath();
+            path.MoveTo(cell.Points[0]);
+            for (int i = 1; i < cell.Points.Count; i++) path.LineTo(cell.Points[i]);
+            path.Close();
+            canvas.DrawPath(path, cellPaint);
+        }
+
+        // Draw boundary on top
+        using (var bPath = new SKPath())
+        {
+            bPath.MoveTo(Result.Boundary.Points[0]);
+            for (int i = 1; i < Result.Boundary.Points.Count; i++) bPath.LineTo(Result.Boundary.Points[i]);
+            bPath.Close();
+            canvas.DrawPath(bPath, boundaryPaint);
+        }
+
+        // Draw seeds
+        foreach (var s in Result.Seeds)
+        {
+            canvas.DrawCircle(s, 2f / (float)scale, seedPaint); // keep visual size constant
+        }
+    }
+}
