@@ -7,7 +7,8 @@ using VoronoiGen.Models;
 namespace VoronoiGen.Services
 {
     // Computes Voronoi diagram via half-plane clipping against polygon-with-holes and optional offsets.
-    // Offsets only affect cell clipping; the returned boundary is always the original.
+    // Generation now happens strictly inside the offset boundary: seeds outside the offseted domain are ignored
+    // and do not influence the result. The returned boundary is still the original to preserve API behavior.
     public static class VoronoiEngine
     {
         public static VoronoiResult Compute(Polygon boundary, List<Vector2> seeds)
@@ -39,12 +40,41 @@ namespace VoronoiGen.Services
                 .Select(p => (X: (double)p.X, Y: (double)p.Y))
                 .ToList();
 
-            var originalOpen = ToOpen(boundary.Points); // used to enforce final inside-clip to original boundary
+            // Determine active seeds: strictly inside the offseted generation domain (outer minus holes)
+            var openBoundaryForPointTest = ToOpen(clipOuter.Points);
+            var openHolesForPointTest = clipHoles.Select(h => ToOpen(h.Points)).ToList();
+
+            bool[] isActiveSeed = new bool[seeds.Count];
+            for (int i = 0; i < seeds.Count; i++)
+            {
+                var s = seeds[i];
+                bool insideOuter = IsInsideOrOn(openBoundaryForPointTest, s);
+                bool insideAnyHole = false;
+                if (insideOuter && openHolesForPointTest.Count > 0)
+                {
+                    for (int h = 0; h < openHolesForPointTest.Count; h++)
+                    {
+                        if (IsInsideOrOn(openHolesForPointTest[h], s))
+                        {
+                            insideAnyHole = true;
+                            break;
+                        }
+                    }
+                }
+                isActiveSeed[i] = insideOuter && !insideAnyHole;
+            }
 
             var cells = new List<Polygon>(seeds.Count);
 
             for (int i = 0; i < seeds.Count; i++)
             {
+                // Only generate cells for active seeds; inactive seeds produce empty cells and do not participate.
+                if (!isActiveSeed[i])
+                {
+                    cells.Add(new Polygon(new List<Vector2>()));
+                    continue;
+                }
+
                 var cell = new List<(double X, double Y)>(openBoundary);
                 var A = seeds[i];
 
@@ -52,6 +82,10 @@ namespace VoronoiGen.Services
                 for (int j = 0; j < seeds.Count; j++)
                 {
                     if (i == j) continue;
+
+                    // Ignore competitors that are inactive (outside the generation domain)
+                    if (!isActiveSeed[j]) continue;
+
                     var B = seeds[j];
 
                     // Half-plane: points X with |X-A|^2 <= |X-B|^2 -> (B-A)·X <= (|B|^2 - |A|^2)/2
@@ -79,10 +113,11 @@ namespace VoronoiGen.Services
                         }
                     }
 
-                    // Final safety: force cells to lie inside the ORIGINAL boundary (never outside)
-                    if (cell.Count >= 3 && originalOpen.Count >= 3)
+                    // Final safety: force cells to lie inside the OFFSET boundary (generation domain)
+                    if (cell.Count >= 3 && openBoundary.Count >= 3)
                     {
-                        cell = ClipInsidePolygon(cell, originalOpen);
+                        var offsetOpen = ToOpen(clipOuter.Points);
+                        cell = ClipInsidePolygon(cell, offsetOpen);
                     }
 
                     if (cell.Count >= 3)
@@ -293,6 +328,52 @@ namespace VoronoiGen.Services
             var list = new List<Vector2>(count);
             for (int i = 0; i < count; i++) list.Add(pts[i]);
             return list;
+        }
+
+        // Point-in-polygon that also treats points on edges as inside
+        private static bool IsInsideOrOn(IReadOnlyList<Vector2> poly, Vector2 p, float tol = 1e-5f)
+        {
+            if (poly.Count < 3) return false;
+            if (PointOnPolyline(poly, p, tol)) return true;
+            return PointInPolygon(poly, p);
+        }
+
+        private static bool PointInPolygon(IReadOnlyList<Vector2> poly, Vector2 p)
+        {
+            bool inside = false;
+            int n = poly.Count;
+            for (int i = 0, j = n - 1; i < n; j = i++)
+            {
+                var pi = poly[i];
+                var pj = poly[j];
+
+                bool intersect = ((pi.Y > p.Y) != (pj.Y > p.Y)) &&
+                                 (p.X < (pj.X - pi.X) * (p.Y - pi.Y) / ((pj.Y - pi.Y) == 0 ? float.Epsilon : (pj.Y - pi.Y)) + pi.X);
+                if (intersect) inside = !inside;
+            }
+            return inside;
+        }
+
+        private static bool PointOnPolyline(IReadOnlyList<Vector2> poly, Vector2 p, float tol)
+        {
+            for (int i = 0; i < poly.Count; i++)
+            {
+                var a = poly[i];
+                var b = poly[(i + 1) % poly.Count];
+                if (DistancePointToSegment(a, b, p) <= tol) return true;
+            }
+            return false;
+        }
+
+        private static float DistancePointToSegment(in Vector2 a, in Vector2 b, in Vector2 p)
+        {
+            var ab = b - a;
+            var ap = p - a;
+            float ab2 = Vector2.Dot(ab, ab);
+            if (ab2 <= float.Epsilon) return (p - a).Length();
+            float t = Math.Clamp(Vector2.Dot(ap, ab) / ab2, 0f, 1f);
+            var c = a + t * ab;
+            return (p - c).Length();
         }
     }
 }
