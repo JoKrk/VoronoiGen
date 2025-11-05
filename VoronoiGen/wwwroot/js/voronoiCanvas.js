@@ -26,7 +26,7 @@ export function drawVoronoi(canvas, data) {
         boundsLeft, boundsTop,
         offsetX, offsetY, scale,
         boundary, cells, seeds,
-        holes, segments, showHoles,
+        holes, showHoles,
         showDebug, hudLines
     } = data;
 

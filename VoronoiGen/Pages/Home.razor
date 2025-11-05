@@ -3,6 +3,7 @@
 @using VoronoiGen.Services
 @using System.Numerics
 @using System.Linq
+@using System.Threading
 
 <PageTitle>Voronoi DXF Tool</PageTitle>
 
@@ -14,36 +15,64 @@
 <div class="controls" style="margin-top:1rem; display:flex; gap:1rem; align-items:center; flex-wrap:wrap;">
     <label>
         Use Holes
-        <input type="checkbox" @bind="UseHoles" />
+        <input type="checkbox" @bind="UseHoles" disabled="@IsGenerating" />
     </label>
     <label title="Inset-only. Positive values are not allowed.">
         Outer Offset
-        <input type="number" step="0.5" max="0" @bind="OuterOffset" />
+        <input type="number" step="0.5"  @bind="OuterOffset" disabled="@IsGenerating" />
     </label>
     <label title="Grow hole masks outward.">
         Inner Offset
-        <input type="number" step="0.5" min="0" @bind="InnerOffset" />
+        <input type="number" step="0.5" min="0" @bind="InnerOffset" disabled="@IsGenerating" />
     </label>
     <label>
         Min Spacing (Poisson Radius)
-        <input type="number" step="0.5" min="1" @bind="PoissonRadius" />
+        <input type="number" step="0.5" min="1" @bind="PoissonRadius" disabled="@IsGenerating" />
     </label>
     <label>
         Seed Count
-        <input type="number" min="1" max="5000" @bind="SeedCount" />
+        <input type="number" min="1" max="5000" @bind="SeedCount" disabled="@IsGenerating" />
     </label>
     <label>
         RNG Seed
-        <input type="number" @bind="RngSeed" />
+        <input type="number" @bind="RngSeed" disabled="@IsGenerating" />
     </label>
     <label>
         Lloyd Iterations
-        <input type="number" min="0" max="10" @bind="LloydIterations" />
+        <input type="number" min="0" max="10" @bind="LloydIterations" disabled="@IsGenerating" />
     </label>
-    <button @onclick="Generate" disabled="@(_import is null)">Generate</button>
-    <button @onclick="ExportSvg" disabled="@(Result is null)">Export SVG</button>
-    <button @onclick="ExportDxf" disabled="@(Result is null)">Export DXF</button>
+    <label title="Gap between adjacent cells (applied symmetrically).">
+        Cell Gap
+        <input type="number" step="0.5" min="0" @bind="CellGap" disabled="@IsGenerating" />
+    </label>
+    <label title="Chaikin smoothing iterations per cell.">
+        Smooth Iterations
+        <input type="number" min="0" max="10" @bind="SmoothIterations" disabled="@IsGenerating" />
+    </label>
+    <label title="Uniform grow/shrink of each cell after gap. Positive grows, negative shrinks.">
+        Cell Offset
+        <input type="number" step="0.5" @bind="CellOffset" disabled="@IsGenerating" />
+    </label>
+    <button @onclick="Generate" disabled="@(_import is null || IsGenerating)">@(IsGenerating ? "Generating…" : "Generate")</button>
+    <button @onclick="CancelGeneration" disabled="@(!IsGenerating)">Cancel</button>
+    <button @onclick="ExportSvg" disabled="@(Result is null || IsGenerating)">Export SVG</button>
+    <button @onclick="ExportDxf" disabled="@(Result is null || IsGenerating)">Export DXF</button>
 </div>
+
+@if (IsGenerating)
+{
+    <div class="gen-status" style="display:flex;align-items:center;gap:.5rem;margin:.5rem 0;">
+        <div class="spinner" aria-label="Generating" style="width:16px;height:16px;border:2px solid #ccc;border-top-color:#333;border-radius:50%;animation:spin 0.9s linear infinite;"></div>
+        <span>Generating…</span>
+    </div>
+    <style>
+        @@keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+    </style>
+}
 
 @if (_import?.Outer is null)
 {
@@ -57,7 +86,6 @@ else
                    Holes="@(UseHoles ? _import!.Holes : null)"
                    ShowHoles="UseHoles"
                    Result="Result"
-                   GeodesicSegments="_geodesicSegments"
                    CanvasWidth="1024"
                    CanvasHeight="480" />
 }
@@ -74,6 +102,9 @@ else
     // Clamp in setters to enforce UI limits regardless of the HTML attributes.
     private double _outerOffset = 0; // inset-only
     private double _innerOffset = 0; // non-negative
+    private double _cellGap = 0;     // non-negative
+    private int _smoothIterations = 0;
+    private double _cellOffset = 0;  // can be positive or negative
 
     private double OuterOffset
     {
@@ -87,12 +118,33 @@ else
         set => _innerOffset = Math.Max(0, value); // never negative
     }
 
+    private double CellGap
+    {
+        get => _cellGap;
+        set => _cellGap = Math.Max(0, value); // never negative
+    }
+
+    private int SmoothIterations
+    {
+        get => _smoothIterations;
+        set => _smoothIterations = Math.Clamp(value, 0, 10);
+    }
+
+    private double CellOffset
+    {
+        get => _cellOffset;
+        set => _cellOffset = value; // allow +/- values
+    }
+
     private int SeedCount { get; set; } = 200;
     private int RngSeed { get; set; } = 12345;
     private float PoissonRadius { get; set; } = 10f;
     private int LloydIterations { get; set; } = 0;
 
     public VoronoiResult? Result { get; set; }
+
+    private bool IsGenerating { get; set; }
+    private CancellationTokenSource? _genCts;
 
     private async Task OnFileSelected(InputFileChangeEventArgs e)
     {
@@ -108,7 +160,6 @@ else
             _effectiveBoundary = _import.Outer;
             _effectiveHoles = UseHoles ? _import.Holes : null;
             Result = null;
-            _geodesicSegments.Clear();
             StateHasChanged();
         }
         catch (Exception ex)
@@ -118,43 +169,74 @@ else
             _effectiveBoundary = null;
             _effectiveHoles = null;
             Result = null;
-            _geodesicSegments.Clear();
             StateHasChanged();
         }
     }
 
-    private Task Generate()
+    private async Task Generate()
     {
-        if (_import is null) return Task.CompletedTask;
+        if (_import is null || IsGenerating) return;
 
-        var boundary = _import.Outer;
-        var rawHoles = UseHoles ? _import.Holes : new List<Polygon>();
-
-        // (Optional) compute effective geometry if you want, but don't feed it to the canvas
-        _effectiveBoundary = _outerOffset == 0 ? boundary : GeometryUtils.OffsetPolygon(boundary, _outerOffset);
-        _effectiveHoles = UseHoles
-            ? (_innerOffset == 0 ? rawHoles : rawHoles.Select(h => GeometryUtils.OffsetPolygon(h, _innerOffset)).ToList())
-            : null;
-
-        // Generate seeds against the original DXF geometry to keep visuals stable
-        _seeds = SeedGenerator.GeneratePoisson(boundary, rawHoles, !UseHoles, PoissonRadius, RngSeed);
-        if (_seeds.Count == 0 && SeedCount > 0)
-        {
-            _seeds = SeedGenerator.GenerateRandom(boundary, rawHoles, !UseHoles, SeedCount, RngSeed);
-        }
-
-        // Also compute the legacy polygon cells for export (kept for now)
-        Result = LloydIterations > 0
-            ? VoronoiEngine.ComputeWithLloyd(boundary, rawHoles, !UseHoles, _seeds, LloydIterations, _outerOffset, _innerOffset)
-            : VoronoiEngine.Compute(boundary, rawHoles, !UseHoles, _seeds, _outerOffset, _innerOffset);
+        IsGenerating = true;
+        _genCts?.Dispose();
+        _genCts = new CancellationTokenSource();
+        var token = _genCts.Token;
 
         StateHasChanged();
-        return Task.CompletedTask;
+        await Task.Yield(); // let spinner render
+
+        try
+        {
+            var boundary = _import.Outer;
+            var rawHoles = UseHoles ? _import.Holes : new List<Polygon>();
+
+            // (Optional) compute effective geometry if you want, but don't feed it to the canvas
+            _effectiveBoundary = _outerOffset == 0 ? boundary : GeometryUtils.OffsetPolygon(boundary, _outerOffset);
+            _effectiveHoles = UseHoles
+                ? (_innerOffset == 0 ? rawHoles : rawHoles.Select(h => GeometryUtils.OffsetPolygon(h, _innerOffset)).ToList())
+                : null;
+
+            // Generate seeds against the original DXF geometry to keep visuals stable
+            _seeds = SeedGenerator.GeneratePoisson(boundary, rawHoles, !UseHoles, PoissonRadius, RngSeed);
+            if (_seeds.Count == 0 && SeedCount > 0)
+            {
+                _seeds = SeedGenerator.GenerateRandom(boundary, rawHoles, !UseHoles, SeedCount, RngSeed);
+            }
+
+            // Heavy compute on a background thread. VoronoiEngine supports cooperative cancellation.
+            Result = await Task.Run(() =>
+            {
+                return LloydIterations > 0
+                    ? VoronoiEngine.ComputeWithLloyd(boundary, rawHoles, !UseHoles, _seeds, LloydIterations, _outerOffset, _innerOffset, CellGap, SmoothIterations, CellOffset, token)
+                    : VoronoiEngine.Compute(boundary, rawHoles, !UseHoles, _seeds, _outerOffset, _innerOffset, CellGap, SmoothIterations, CellOffset, token);
+            }, token);
+        }
+        catch (OperationCanceledException)
+        {
+            // cancelled: keep previous Result
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(ex);
+            Result = null;
+        }
+        finally
+        {
+            IsGenerating = false;
+            _genCts?.Dispose();
+            _genCts = null;
+            StateHasChanged();
+        }
+    }
+
+    private void CancelGeneration()
+    {
+        _genCts?.Cancel();
     }
 
     private void ExportSvg()
     {
-        if (Result is null) return;
+        if (Result is null || IsGenerating) return;
         var svg = SvgExporter.Export(Result, strokeWidth: 1f);
         var bytes = System.Text.Encoding.UTF8.GetBytes(svg);
         var base64 = Convert.ToBase64String(bytes);
@@ -164,7 +246,7 @@ else
 
     private void ExportDxf()
     {
-        if (Result is null) return;
+        if (Result is null || IsGenerating) return;
         var bytes = DxfExporter.Export(Result);
         var base64 = Convert.ToBase64String(bytes);
         var timestamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");

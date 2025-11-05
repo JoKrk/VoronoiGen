@@ -2,20 +2,362 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
+using System.Threading;
+using Clipper2Lib;
 using VoronoiGen.Models;
 
 namespace VoronoiGen.Services
 {
     /// <summary>
-    /// I want a voronoi generation algoritihm that takes a boundary with internal contours (holes) and then generates a voronoi diagram
-    /// that fits within that boundary, respecting the holes. The algorithm should also support Lloyd relaxation to improve the uniformity of the cells.
-    /// Also there will be options for offsetting the cells inwards or outwards by a specified distance, using polygon offsetting techniques. These 
-    /// will not clip the cells to the boundary, but rather adjust their shapes while keeping them within the overall offsetted boundary and holes.
+    /// Voronoi generation inside a polygon with optional holes, with support for
+    /// Lloyd relaxation, boundary/hole offsets, cell spacing (gap), and smoothing.
     /// </summary>
     public static class VoronoiEngine
     {
+        // Public API used by Home.razor — kept compatible, plus optional cancellation.
+        public static VoronoiResult Compute(
+            Polygon boundary,
+            List<Polygon>? holes,
+            bool ignoreHoles,
+            List<Vector2> seeds,
+            double outerOffset,
+            double innerOffset,
+            double cellGap = 0,
+            int smoothIterations = 0,
+            double cellOffset = 0,
+            CancellationToken token = default)
+        {
+            token.ThrowIfCancellationRequested();
 
+            var (workOuter, workHoles) = BuildWorkingRegion(boundary, holes, ignoreHoles, outerOffset, innerOffset);
 
+            var rawCells = ComputeCells(workOuter, workHoles, ignoreHoles, seeds, token);
+
+            var processed = PostProcessCells(rawCells, workOuter, workHoles, ignoreHoles, cellGap, cellOffset, smoothIterations, token);
+
+            token.ThrowIfCancellationRequested();
+            return new VoronoiResult(workOuter, processed, seeds);
+        }
+
+        public static VoronoiResult ComputeWithLloyd(
+            Polygon boundary,
+            List<Polygon>? holes,
+            bool ignoreHoles,
+            List<Vector2> seeds,
+            int iterations,
+            double outerOffset,
+            double innerOffset,
+            double cellGap = 0,
+            int smoothIterations = 0,
+            double cellOffset = 0,
+            CancellationToken token = default)
+        {
+            token.ThrowIfCancellationRequested();
+
+            var (workOuter, workHoles) = BuildWorkingRegion(boundary, holes, ignoreHoles, outerOffset, innerOffset);
+            var currentSeeds = new List<Vector2>(seeds);
+
+            for (int it = 0; it < iterations; it++)
+            {
+                token.ThrowIfCancellationRequested();
+
+                var cells = ComputeCells(workOuter, workHoles, ignoreHoles, currentSeeds, token);
+
+                for (int i = 0; i < currentSeeds.Count; i++)
+                {
+                    token.ThrowIfCancellationRequested();
+
+                    var poly = cells[i];
+                    if (poly.Points.Count >= 3)
+                    {
+                        var c = poly.Centroid();
+                        if (SeedGenerator.PointInRegion(c, workOuter, workHoles, ignoreHoles))
+                            currentSeeds[i] = c;
+                        else
+                            currentSeeds[i] = NudgeInside(currentSeeds[i], c, workOuter, workHoles, ignoreHoles);
+                    }
+                }
+            }
+
+            var finalCells = ComputeCells(workOuter, workHoles, ignoreHoles, currentSeeds, token);
+            var processed = PostProcessCells(finalCells, workOuter, workHoles, ignoreHoles, cellGap, cellOffset, smoothIterations, token);
+
+            token.ThrowIfCancellationRequested();
+            return new VoronoiResult(workOuter, processed, currentSeeds);
+        }
+
+        // --- Core Voronoi by half-plane clipping ---
+
+        private static List<Polygon> ComputeCells(
+            Polygon workOuter,
+            List<Polygon>? workHoles,
+            bool ignoreHoles,
+            List<Vector2> seeds,
+            CancellationToken token)
+        {
+            var result = new List<Polygon>(seeds.Count);
+            var regionPaths = BuildRegionPaths(workOuter, workHoles, ignoreHoles);
+
+            for (int i = 0; i < seeds.Count; i++)
+            {
+                token.ThrowIfCancellationRequested();
+
+                var si = seeds[i];
+                var cell = new List<Vector2>(workOuter.Points);
+
+                for (int j = 0; j < seeds.Count; j++)
+                {
+                    if (j == i) continue;
+
+                    // Lightweight cancellation check every few iterations
+                    if ((j & 7) == 0) token.ThrowIfCancellationRequested();
+
+                    var sj = seeds[j];
+                    var m = 0.5f * (si + sj);
+                    var n = sj - si;
+                    cell = ClipWithHalfPlane(cell, m, n);
+                    if (cell.Count < 3) break;
+                }
+
+                var clipped = ClipPolygonToRegion(cell, regionPaths, si);
+                result.Add(clipped);
+            }
+
+            return result;
+        }
+
+        // Fix for CS1628: copy 'in' params to locals before lambda usage
+        private static List<Vector2> ClipWithHalfPlane(IReadOnlyList<Vector2> poly, in Vector2 m, in Vector2 n, float eps = 1e-6f)
+        {
+            var output = new List<Vector2>(poly.Count);
+            if (poly.Count == 0) return output;
+
+            var localM = m;
+            var localN = n;
+
+            bool Inside(in Vector2 p)
+                => Vector2.Dot(p - localM, localN) <= eps;
+
+            Vector2 Intersection(in Vector2 a, in Vector2 b)
+            {
+                var ab = b - a;
+                float da = Vector2.Dot(a - localM, localN);
+                float db = Vector2.Dot(b - localM, localN);
+                float denom = da - db;
+                float t = Math.Abs(denom) < 1e-12f ? 0f : (da / denom);
+                t = Math.Clamp(t, 0f, 1f);
+                return a + t * ab;
+            }
+
+            var prev = poly[^1];
+            bool prevInside = Inside(prev);
+
+            for (int i = 0; i < poly.Count; i++)
+            {
+                var curr = poly[i];
+                bool currInside = Inside(curr);
+
+                if (prevInside && currInside)
+                {
+                    output.Add(curr);
+                }
+                else if (prevInside && !currInside)
+                {
+                    output.Add(Intersection(prev, curr));
+                }
+                else if (!prevInside && currInside)
+                {
+                    output.Add(Intersection(prev, curr));
+                    output.Add(curr);
+                }
+
+                prev = curr;
+                prevInside = currInside;
+            }
+
+            DedupLinear(output);
+            return output;
+        }
+
+        // --- Region building & clipping ---
+
+        private static (Polygon workOuter, List<Polygon>? workHoles) BuildWorkingRegion(
+            Polygon boundary,
+            List<Polygon>? holes,
+            bool ignoreHoles,
+            double outerOffset,
+            double innerOffset)
+        {
+            var workOuter = outerOffset != 0 ? GeometryUtils.OffsetPolygon(boundary, outerOffset) : boundary;
+            List<Polygon>? workHoles = null;
+
+            if (!ignoreHoles && holes is not null && holes.Count > 0)
+            {
+                workHoles = innerOffset != 0
+                    ? holes.Select(h => GeometryUtils.OffsetPolygon(h, innerOffset)).ToList()
+                    : new List<Polygon>(holes);
+            }
+
+            return (workOuter, workHoles);
+        }
+
+        private static Paths64 BuildRegionPaths(Polygon outer, List<Polygon>? holes, bool ignoreHoles)
+        {
+            var outerPath = new Paths64 { GeometryUtils.ToPath64(outer.Points) };
+            if (ignoreHoles || holes is null || holes.Count == 0)
+                return outerPath;
+
+            var holePaths = new Paths64();
+            foreach (var h in holes)
+                holePaths.Add(GeometryUtils.ToPath64(h.Points));
+
+            var c = new Clipper64();
+            c.AddSubject(outerPath);
+            c.AddClip(holePaths);
+            var solution = new Paths64();
+            c.Execute(ClipType.Difference, FillRule.NonZero, solution);
+            return solution;
+        }
+
+        private static Polygon ClipPolygonToRegion(List<Vector2> poly, Paths64 regionPaths, in Vector2 seed)
+        {
+            if (poly.Count < 3)
+                return new Polygon(new List<Vector2>());
+
+            var subject = new Paths64 { GeometryUtils.ToPath64(poly) };
+            var c = new Clipper64();
+            c.AddSubject(subject);
+            c.AddClip(regionPaths);
+            var solution = new Paths64();
+            c.Execute(ClipType.Intersection, FillRule.NonZero, solution);
+
+            if (solution.Count == 0)
+                return new Polygon(new List<Vector2>());
+
+            List<Vector2>? chosen = null;
+            double bestArea = double.NegativeInfinity;
+
+            foreach (var path in solution)
+            {
+                var list = GeometryUtils.ToVector2List(path);
+                if (list.Count < 3) continue;
+
+                if (SeedGenerator.PointInPolygon(seed, list))
+                {
+                    chosen = list;
+                    break;
+                }
+
+                double area = Math.Abs(Clipper.Area(path));
+                if (area > bestArea)
+                {
+                    bestArea = area;
+                    chosen = list;
+                }
+            }
+
+            return new Polygon(chosen ?? GeometryUtils.ToVector2List(solution[0]));
+        }
+
+        // --- Post-processing ---
+
+        private static List<Polygon> PostProcessCells(
+            List<Polygon> cells,
+            Polygon workOuter,
+            List<Polygon>? workHoles,
+            bool ignoreHoles,
+            double cellGap,
+            double cellOffset,
+            int smoothIterations,
+            CancellationToken token)
+        {
+            var regionPaths = BuildRegionPaths(workOuter, workHoles, ignoreHoles);
+            var processed = new List<Polygon>(cells.Count);
+
+            double effectiveOffset = cellOffset;
+            if (cellGap > 0) effectiveOffset -= (cellGap * 0.5);
+
+            foreach (var cell in cells)
+            {
+                token.ThrowIfCancellationRequested();
+
+                var poly = cell.Points;
+
+                if (effectiveOffset != 0 && poly.Count >= 3)
+                {
+                    poly = GeometryUtils.OffsetPolygon(new Polygon(poly), effectiveOffset).Points;
+                }
+
+                if (smoothIterations > 0 && poly.Count >= 3)
+                {
+                    poly = ChaikinSmooth(poly, smoothIterations, 0.25f);
+                }
+
+                var clipped = ClipPolygonToRegion(poly, regionPaths, seed: cell.Centroid());
+                processed.Add(clipped);
+            }
+
+            return processed;
+        }
+
+        private static List<Vector2> ChaikinSmooth(IReadOnlyList<Vector2> pts, int iterations, float weight)
+        {
+            if (pts.Count < 3 || iterations <= 0) return pts.ToList();
+
+            List<Vector2> work = pts.ToList();
+
+            for (int it = 0; it < iterations; it++)
+            {
+                var next = new List<Vector2>(work.Count * 2);
+                for (int i = 0; i < work.Count; i++)
+                {
+                    var a = work[i];
+                    var b = work[(i + 1) % work.Count];
+
+                    var q = (1 - weight) * a + weight * b;
+                    var r = weight * a + (1 - weight) * b;
+
+                    next.Add(q);
+                    next.Add(r);
+                }
+                DedupLinear(next);
+                work = next;
+            }
+
+            return work;
+        }
+
+        private static Vector2 NudgeInside(Vector2 from, Vector2 target, Polygon outer, List<Polygon>? holes, bool ignoreHoles)
+        {
+            if (SeedGenerator.PointInRegion(from, outer, holes, ignoreHoles))
+            {
+                Vector2 lo = from, hi = target;
+                for (int i = 0; i < 32; i++)
+                {
+                    var mid = (lo + hi) * 0.5f;
+                    if (SeedGenerator.PointInRegion(mid, outer, holes, ignoreHoles))
+                        lo = mid;
+                    else
+                        hi = mid;
+                }
+                return lo;
+            }
+            return from;
+        }
+
+        private static void DedupLinear(List<Vector2> pts, float eps = 1e-5f)
+        {
+            if (pts.Count < 2) return;
+            int w = 1;
+            for (int i = 1; i < pts.Count; i++)
+            {
+                if (Vector2.DistanceSquared(pts[i], pts[w - 1]) > eps * eps)
+                {
+                    if (w != i) pts[w] = pts[i];
+                    w++;
+                }
+            }
+            if (w < pts.Count) pts.RemoveRange(w, pts.Count - w);
+        }
     }
-
 }
