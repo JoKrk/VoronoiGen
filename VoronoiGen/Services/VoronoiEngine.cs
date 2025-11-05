@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
@@ -14,7 +14,7 @@ namespace VoronoiGen.Services
     /// </summary>
     public static class VoronoiEngine
     {
-        // Public API used by Home.razor � kept compatible, plus optional cancellation.
+        // Public API used by Home.razor — kept compatible, plus optional cancellation.
         public static VoronoiResult Compute(
             Polygon boundary,
             List<Polygon>? holes,
@@ -199,7 +199,7 @@ namespace VoronoiGen.Services
 
             if (!ignoreHoles && holes is not null && holes.Count > 0)
             {
-                // Positive innerOffset grows holes outward, reducing free area � already correct
+                // Positive innerOffset grows holes outward, reducing free area — already correct
                 workHoles = innerOffset != 0
                     ? holes.Select(h => GeometryUtils.OffsetPolygon(h, innerOffset)).ToList()
                     : new List<Polygon>(holes);
@@ -290,14 +290,38 @@ namespace VoronoiGen.Services
 
                 var poly = cell.Points;
 
+                // 1) Apply gap as an inset; we’ll use round-corner smoothing afterward.
                 if (effectiveOffset != 0 && poly.Count >= 3)
                 {
                     poly = GeometryUtils.OffsetPolygon(new Polygon(poly), effectiveOffset).Points;
                 }
 
+                // 2) Corner-rounding pass with constant-radius opening (erode then dilate).
+                //    This removes sharp corners while largely preserving bulk geometry.
                 if (smoothIterations > 0 && poly.Count >= 3)
                 {
-                    poly = ChaikinSmooth(poly, smoothIterations, 0.25f);
+                    // Estimate a conservative radius:
+                    // - If there’s a gap, tie radius to that (won’t exceed gap/2).
+                    // - Otherwise, derive from local average edge length.
+                    double avgLen = AverageEdgeLength(poly);
+                    double baseR = (cellGap > 0)
+                        ? Math.Min(Math.Abs(effectiveOffset), Math.Max(1e-3, 0.5 * Math.Abs(effectiveOffset)))
+                        : Math.Max(1e-3, 0.15 * avgLen);
+
+                    double rPerIter = baseR; // one iteration ≈ one base radius
+                    double r = Math.Clamp(smoothIterations * rPerIter, 0, 0.45 * avgLen);
+
+                    if (r > 1e-5)
+                    {
+                        poly = RoundCornersOpening(poly, r, Math.Max(0.25, r / 6.0));
+                        // Optional light Chaikin pass to even arc tessellation.
+                        poly = ChaikinSmooth(poly, 1, 0.25f);
+                    }
+                    else
+                    {
+                        // Fallback to Chaikin only (very small radius).
+                        poly = ChaikinSmooth(poly, smoothIterations, 0.25f);
+                    }
                 }
 
                 var clipped = ClipPolygonToRegion(poly, regionPaths, seed: cell.Centroid());
@@ -437,13 +461,48 @@ namespace VoronoiGen.Services
 
         private static double CalculateAspectRatio(Polygon cell)
         {
-            var bounds = cell.GetBounds();
-            double width = bounds.Width;
-            double height = bounds.Height;
+            var pts = cell.Points;
+            if (pts is null || pts.Count == 0) return double.MaxValue;
 
-            if (height < 1e-6) return double.MaxValue;
-            return Math.Max(width / height, height / width);
+            // Fallbacks for tiny/degenerate cells
+            if (pts.Count < 3)
+            {
+                var b = cell.GetBounds();
+                double w = b.Width, h = b.Height;
+                if (w < 1e-9 || h < 1e-9) return double.MaxValue;
+                return (w >= h) ? (w / h) : (h / w);
+            }
+
+            // PCA on the vertex set to estimate elongation
+            double mx = 0, my = 0;
+            int n = pts.Count;
+            for (int i = 0; i < n; i++) { mx += pts[i].X; my += pts[i].Y; }
+            mx /= n; my /= n;
+
+            double sxx = 0, syy = 0, sxy = 0;
+            for (int i = 0; i < n; i++)
+            {
+                double dx = pts[i].X - mx;
+                double dy = pts[i].Y - my;
+                sxx += dx * dx;
+                syy += dy * dy;
+                sxy += dx * dy;
+            }
+            sxx /= n; syy /= n; sxy /= n;
+
+            double tr = sxx + syy;
+            double det = sxx * syy - sxy * sxy;
+            double disc = Math.Max(0.0, tr * tr - 4.0 * det);
+            double root = Math.Sqrt(disc);
+
+            double lMax = 0.5 * (tr + root);
+            double lMin = 0.5 * (tr - root);
+
+            if (lMin <= 1e-12) return double.MaxValue; // essentially a line
+            double ratio = Math.Sqrt(lMax / lMin);
+            return ratio;
         }
+
 
         private static double DistanceToSegment(Vector2 p, Vector2 a, Vector2 b)
         {
@@ -452,6 +511,70 @@ namespace VoronoiGen.Services
             float t = Math.Clamp(Vector2.Dot(ap, ab) / Vector2.Dot(ab, ab), 0f, 1f);
             var closest = a + t * ab;
             return Vector2.Distance(p, closest);
+        }
+
+        // --- New helpers: radius-based rounding ---
+
+        private static List<Vector2> RoundCornersOpening(IReadOnlyList<Vector2> pts, double radius, double arcTolerance)
+        {
+            if (pts.Count < 3 || radius <= 0) return pts.ToList();
+
+            const double SCALE = 1e6;
+
+            var path = new Path64(pts.Count);
+            for (int i = 0; i < pts.Count; i++)
+            {
+                var p = pts[i];
+                path.Add(new Point64(
+                    (long)Math.Round(p.X * SCALE),
+                    (long)Math.Round(p.Y * SCALE)
+                ));
+            }
+
+            var co = new ClipperOffset
+            {
+                ArcTolerance = Math.Max(1.0, arcTolerance * SCALE),
+                MiterLimit = 2.0
+            };
+
+            // Erode by r
+            var eroded = new Paths64();
+            co.AddPath(path, JoinType.Round, EndType.Polygon);
+            co.Execute(-radius * SCALE, eroded); // swapped order
+
+            if (eroded.Count == 0) return pts.ToList();
+
+            // Dilate by r
+            co.Clear();
+            co.AddPaths(eroded, JoinType.Round, EndType.Polygon);
+            var opened = new Paths64();
+            co.Execute(radius * SCALE, opened); // swapped order
+
+            if (opened.Count == 0) return pts.ToList();
+
+            Path64 best = opened[0];
+            double bestArea = Math.Abs(Clipper.Area(best));
+            for (int i = 1; i < opened.Count; i++)
+            {
+                double a = Math.Abs(Clipper.Area(opened[i]));
+                if (a > bestArea) { best = opened[i]; bestArea = a; }
+            }
+
+            var result = new List<Vector2>(best.Count);
+            foreach (var q in best)
+                result.Add(new Vector2((float)(q.X / SCALE), (float)(q.Y / SCALE)));
+
+            DedupLinear(result);
+            return result;
+        }
+
+        private static double AverageEdgeLength(IReadOnlyList<Vector2> poly)
+        {
+            if (poly.Count < 2) return 0.0;
+            double sum = 0.0;
+            for (int i = 0, j = poly.Count - 1; i < poly.Count; j = i++)
+                sum += Vector2.Distance(poly[j], poly[i]);
+            return sum / poly.Count;
         }
     }
 }

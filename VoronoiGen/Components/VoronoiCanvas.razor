@@ -1,6 +1,7 @@
 @using System.Numerics
 @using VoronoiGen.Models
 @inject Microsoft.JSInterop.IJSRuntime JS
+@implements IAsyncDisposable
 
 @if (Boundary is null && Result is null)
 {
@@ -8,8 +9,10 @@
 }
 else
 {
-    <canvas @ref="_canvasRef"
-            style="border:1px solid #ddd; display:block; width:@($"{CanvasWidth}px"); height:@($"{CanvasHeight}px");"></canvas>
+    <div @ref="_containerRef" style="width: 100%; height: 100%;">
+        <canvas @ref="_canvasRef"
+                style="border:1px solid #ddd; display:block; width:100%; height:100%;"></canvas>
+    </div>
 
     @if (ShowDebug)
     {
@@ -28,11 +31,9 @@ else
     [Parameter] public bool ShowHoles { get; set; } = true;
     [Parameter] public bool ShowDebug { get; set; } = false;
 
-    [Parameter] public int CanvasWidth { get; set; } = 1024;
-    [Parameter] public int CanvasHeight { get; set; } = 480;
-
-    private Microsoft.AspNetCore.Components.ElementReference _canvasRef;
-    private Microsoft.JSInterop.IJSObjectReference? _module;
+    private ElementReference _containerRef;
+    private ElementReference _canvasRef;
+    private IJSObjectReference? _module;
     private bool _moduleReady;
     private bool _invalidateAfterRender;
 
@@ -59,7 +60,7 @@ else
     {
         if (firstRender)
         {
-            _module = await JS.InvokeAsync<Microsoft.JSInterop.IJSObjectReference>("import", "/js/voronoiCanvas.js");
+            _module = await JS.InvokeAsync<IJSObjectReference>("import", "/js/voronoiCanvas.js");
             _moduleReady = true;
         }
 
@@ -86,6 +87,13 @@ else
 
         try
         {
+            // Get container size dynamically
+            var containerSize = await _module.InvokeAsync<ContainerSize>("getContainerSize", _containerRef);
+            if (containerSize.Width <= 0 || containerSize.Height <= 0)
+            {
+                return; // Container not yet sized
+            }
+
             // Working boundary (offset) if Result present; otherwise original
             var workBoundary = Result?.Boundary ?? Boundary;
             // Original DXF boundary explicitly
@@ -93,14 +101,14 @@ else
 
             if (workBoundary is null || workBoundary.Points.Count < 3)
             {
-                var prepOnly = await _module.InvokeAsync<PrepareResult>("prepareCanvas", _canvasRef, CanvasWidth, CanvasHeight);
+                var prepOnly = await _module.InvokeAsync<PrepareResult>("prepareCanvas", _canvasRef, containerSize.Width, containerSize.Height);
                 _lastCanvasW = prepOnly.pixelWidth;
                 _lastCanvasH = prepOnly.pixelHeight;
                 await _module.InvokeVoidAsync("clearCanvas", _canvasRef, _lastCanvasW, _lastCanvasH);
                 return;
             }
 
-            var prep = await _module.InvokeAsync<PrepareResult>("prepareCanvas", _canvasRef, CanvasWidth, CanvasHeight);
+            var prep = await _module.InvokeAsync<PrepareResult>("prepareCanvas", _canvasRef, containerSize.Width, containerSize.Height);
             var pixelW = prep.pixelWidth;
             var pixelH = prep.pixelHeight;
             _lastCanvasW = pixelW;
@@ -108,15 +116,15 @@ else
 
             // Compute bounds from the currently drawn working boundary
             var bounds = ComputeBounds(workBoundary.Points);
-            _lastBounds = bounds;
 
             // If we have a Result, also include the original boundary in bounds to ensure it's visible
             if (Result is not null && originalBoundary is not null && originalBoundary.Points.Count >= 3)
             {
                 var originalBounds = ComputeBounds(originalBoundary.Points);
                 bounds = UnionBounds(bounds, originalBounds);
-                _lastBounds = bounds;  // Update debug info
             }
+
+            _lastBounds = bounds;
 
             if (bounds.Width <= 0 || bounds.Height <= 0)
             {
@@ -124,35 +132,27 @@ else
                 return;
             }
 
-            var scaleX = pixelW / bounds.Width;
-            var scaleY = pixelH / bounds.Height;
-            var scale = (float)Math.Min(scaleX, scaleY);
-            _lastScale = scale;
-
-            var contentW = bounds.Width * scale;
-            var contentH = bounds.Height * scale;
-            var offsetX = (pixelW - contentW) * 0.5;
-            var offsetY = (pixelH - contentH) * 0.5;
-
-            // Replace the above scaling and offset logic with the following to add a margin:
-            const int margin = 20;  // Adjust this value as needed for more/less margin
+            // Apply percentage-based margin
+            const double marginPercent = 0.04; // 4% margin on each side
+            var margin = Math.Max(10, Math.Min(pixelW, pixelH) * marginPercent);
             var effectiveW = pixelW - 2 * margin;
             var effectiveH = pixelH - 2 * margin;
+
             if (effectiveW <= 0 || effectiveH <= 0)
             {
                 await _module.InvokeVoidAsync("clearCanvas", _canvasRef, pixelW, pixelH);
                 return;
             }
 
-            scaleX = effectiveW / bounds.Width;
-            scaleY = effectiveH / bounds.Height;
-            scale = (float)Math.Min(scaleX, scaleY);
+            var scaleX = effectiveW / bounds.Width;
+            var scaleY = effectiveH / bounds.Height;
+            var scale = (float)Math.Min(scaleX, scaleY);
             _lastScale = scale;
 
-            contentW = bounds.Width * scale;
-            contentH = bounds.Height * scale;
-            offsetX = margin + (effectiveW - contentW) * 0.5;
-            offsetY = margin + (effectiveH - contentH) * 0.5;
+            var contentW = bounds.Width * scale;
+            var contentH = bounds.Height * scale;
+            var offsetX = margin + (effectiveW - contentW) * 0.5;
+            var offsetY = margin + (effectiveH - contentH) * 0.5;
 
             _cellCount = Result?.Cells?.Count ?? 0;
             _seedCount = Result?.Seeds?.Count ?? 0;
@@ -197,7 +197,8 @@ else
                     $"cells:{_cellCount} nonEmpty:{nonEmpty}",
                     $"scale:{scale:F6}",
                     $"bounds: {bounds.Left:F1},{bounds.Top:F1} {bounds.Width:F1}x{bounds.Height:F1}",
-                    $"holes:{_holeCount}"
+                    $"holes:{_holeCount}",
+                    $"margin:{margin:F1}"
                 }
                 : Array.Empty<string>();
 
@@ -247,9 +248,9 @@ else
     {
         double left = Math.Min(a.Left, b.Left);
         double top = Math.Min(a.Top, b.Top);
-        double width = Math.Max(a.Width, b.Width);
-        double height = Math.Max(a.Height, b.Height);
-        return new RectD(left, top, width, height);
+        double right = Math.Max(a.Left + a.Width, b.Left + b.Width);
+        double bottom = Math.Max(a.Top + a.Height, b.Top + b.Height);
+        return new RectD(left, top, right - left, bottom - top);
     }
 
     private static double[] ToFlatArray(IReadOnlyList<Vector2> points)
@@ -264,6 +265,6 @@ else
     }
 
     private record struct RectD(double Left, double Top, double Width, double Height);
-
     private record PrepareResult(int pixelWidth, int pixelHeight, double dpr);
+    private record ContainerSize(int Width, int Height);
 }

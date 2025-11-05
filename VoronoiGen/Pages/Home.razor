@@ -17,7 +17,7 @@
 
         <!-- File Upload Section -->
         <section class="upload-section">
-            <InputFile OnChange="OnFileSelected" accept=".dxf" />
+            <InputFile id="fileInput" OnChange="OnFileSelected" accept=".dxf" />
 
             @if (_import?.Outer is null)
             {
@@ -116,12 +116,8 @@
                 @(IsGenerating ? "⏳ Generating…" : "▶️ Generate")
             </button>
 
-            <button class="btn-success" @onclick="ExportSvg" disabled="@(Result is null || IsGenerating)">
-                📄 Export SVG
-            </button>
-
             <button class="btn-success" @onclick="ExportDxf" disabled="@(Result is null || IsGenerating)">
-                📐 Export DXF
+                📐 Export
             </button>
         </section>
 
@@ -158,9 +154,8 @@
                 <VoronoiCanvas Boundary="_import!.Outer"
                                Holes="@(UseHoles ? _import!.Holes : null)"
                                ShowHoles="UseHoles"
-                               Result="Result"
-                               CanvasWidth="1400"
-                               CanvasHeight="800" />
+                               Result="Result"                            
+                               />
             </div>
         }
     </main>
@@ -171,6 +166,8 @@
     private Polygon? _effectiveBoundary;
     private List<Polygon>? _effectiveHoles;
     private List<Vector2> _seeds = new();
+
+    private ElementReference fileInputRef;
 
     // UI params
     private bool UseHoles { get; set; } = true;
@@ -228,6 +225,14 @@
 
     private bool IsGenerating { get; set; }
     private CancellationTokenSource? _genCts;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await JS.InvokeVoidAsync("voronoiGen.focusElement", "fileInput");
+        }
+    }
 
     private async Task OnFileSelected(InputFileChangeEventArgs e)
     {
@@ -312,17 +317,6 @@
     private void CancelGeneration()
     {
         _genCts?.Cancel();
-    }
-
-    private void ExportSvg()
-    {
-        if (Result is null || IsGenerating) return;
-        var holes = UseHoles ? _import?.Holes : null;
-        var svg = SvgExporter.Export(Result, holes, strokeWidth: 1f);
-        var bytes = System.Text.Encoding.UTF8.GetBytes(svg);
-        var base64 = Convert.ToBase64String(bytes);
-        var timestamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
-        JS.InvokeVoidAsync("voronoiGen.downloadBlob", base64, "image/svg+xml", $"voronoi-{timestamp}.svg");
     }
 
     private void ExportDxf()

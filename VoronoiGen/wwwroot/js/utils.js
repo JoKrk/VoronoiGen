@@ -1,4 +1,8 @@
 window.voronoiGen = {
+
+
+
+
   openBlob: function (bytesBase64, mime) {
     try {
       const bytes = Uint8Array.from(atob(bytesBase64), c => c.charCodeAt(0));
@@ -28,6 +32,13 @@ window.voronoiGen = {
       return true;
     } catch {
       return false;
+    }
+  },
+
+  focusElement: function (id) {
+    const element = document.getElementById(id);
+    if (element) {
+      element.focus();
     }
   }
 };

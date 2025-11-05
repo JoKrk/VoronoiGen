@@ -19,6 +19,8 @@
     --color-background: #fbfbfd;
     --color-surface: #ffffff;
     --color-surface-elevated: #ffffff;
+    /* Canvas Background */
+    --color-canvas-background: #e8f5e9;
     /* Shadows */
     --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02);
     --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.05), 0 2px 4px rgba(0, 0, 0, 0.03);
@@ -43,7 +45,7 @@
     --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
     --transition-base: 200ms cubic-bezier(0.4, 0, 0.2, 1);
     /* Sidebar */
-    --sidebar-width: 380px;
+    --sidebar-width: 420px;
 }
 
 /* ========================================
@@ -286,8 +288,8 @@ body {
     padding: var(--space-lg);
     border-top: 1px solid var(--color-border-light);
     background: var(--color-background);
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
     gap: var(--space-md);
     position: sticky;
     bottom: 0;
@@ -396,7 +398,7 @@ input[type="file"] {
     display: flex;
     align-items: center;
     justify-content: center;
-    background: var(--color-background);
+    background: var(--color-canvas-background);
     overflow: hidden;
     position: relative;
 }
@@ -749,4 +751,57 @@ code {
 
 .mb-5 {
     margin-bottom: var(--space-xl) !important;
+}
+
+/* Desktop: keep full-height layout but use dynamic viewport units to avoid iOS bars issues */
+@media (min-width: 769px) {
+    body {
+        overflow: hidden;
+    }
+
+    .app-layout {
+        height: 100dvh;
+    }
+    /* overrides base 100vh */
+}
+
+/* Tablet and below: let the page scroll and avoid scroll traps */
+@media (max-width: 1024px) {
+    body {
+        overflow: auto;
+    }
+    /* re-enable page scroll */
+    .app-layout {
+        height: auto; /* stop forcing full-viewport height */
+        min-height: 100svh; /* still at least one viewport tall */
+        overflow: visible; /* no hidden overflow */
+    }
+
+    .canvas-area {
+        overflow: auto; /* allow canvas region to scroll if needed */
+    }
+}
+
+/* Phone: avoid split scroll areas; make sidebar and canvas flow naturally */
+@media (max-width: 768px) {
+    .sidebar {
+        max-height: none; /* override the 50vh cap */
+        overflow: visible; /* let the page (body) handle scrolling */
+    }
+
+    .actions {
+        position: sticky; /* keep actions accessible without trapping scroll */
+        bottom: 0;
+    }
+
+    .canvas-area {
+        flex: none;
+        min-height: auto; /* let content define height */
+        overflow: visible; /* rely on page scroll */
+    }
+
+    .canvas-container {
+        height: auto; /* avoid 100% height without a fixed parent */
+        padding: var(--space-md);
+    }
 }

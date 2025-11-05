@@ -1,3 +1,25 @@
+export function getContainerSize(container) {
+    const rect = container.getBoundingClientRect();
+    return {
+        width: Math.floor(rect.width),
+        height: Math.floor(rect.height)
+    };
+}
+
+export function setupResizeObserver(container, dotNetRef) {
+    const observer = new ResizeObserver(() => {
+        dotNetRef.invokeMethodAsync('OnResize');
+    });
+    observer.observe(container);
+
+    // Return a disposable object
+    return {
+        dispose: () => {
+            observer.disconnect();
+        }
+    };
+}
+
 export function prepareCanvas(canvas, cssWidth, cssHeight) {
     const dpr = window.devicePixelRatio || 1;
     canvas.style.width = `${cssWidth}px`;
