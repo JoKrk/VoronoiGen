@@ -247,9 +247,9 @@ else
     {
         double left = Math.Min(a.Left, b.Left);
         double top = Math.Min(a.Top, b.Top);
-        double right = Math.Max(a.Right, b.Right);
-        double bottom = Math.Max(a.Bottom, b.Bottom);
-        return new RectD(left, top, right - left, bottom - top);
+        double width = Math.Max(a.Width, b.Width);
+        double height = Math.Max(a.Height, b.Height);
+        return new RectD(left, top, width, height);
     }
 
     private static double[] ToFlatArray(IReadOnlyList<Vector2> points)
