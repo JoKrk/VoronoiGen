@@ -3,6 +3,10 @@
 		<TargetFramework>net9.0</TargetFramework>
 		<Nullable>enable</Nullable>
 		<ImplicitUsings>enable</ImplicitUsings>
+		<RunAOTCompilation>true</RunAOTCompilation>
+		<BlazorEnableCompression>true</BlazorEnableCompression>
+		<InvariantGlobalization>true</InvariantGlobalization>
+		<UserSecretsId>d618a3e5-5f8b-4f11-9ebd-080592f24732</UserSecretsId>
 	</PropertyGroup>
 
 
@@ -12,5 +16,10 @@
 		<PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="9.0.10" />
 		<PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="9.0.10" PrivateAssets="all" />
 		<PackageReference Include="VoronoiLib" Version="0.1.0" />
+	</ItemGroup>
+
+
+	<ItemGroup>
+	  <Folder Include="wwwroot\images\" />
 	</ItemGroup>
 </Project>

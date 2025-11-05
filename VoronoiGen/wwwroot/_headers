@@ -1,0 +1,26 @@
+﻿# Global headers for all routes
+/*
+  Cross-Origin-Embedder-Policy: require-corp
+  Cross-Origin-Opener-Policy: same-origin
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: interest-cohort=()
+
+# Cache Blazor framework files aggressively (immutable)
+/_framework/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# Cache static assets
+/css/*
+  Cache-Control: public, max-age=31536000
+
+/images/*
+  Cache-Control: public, max-age=31536000
+
+/js/*
+  Cache-Control: public, max-age=31536000
+
+# Don't cache HTML files (for updates)
+/*.html
+  Cache-Control: public, max-age=0, must-revalidate

@@ -1,0 +1,11 @@
+﻿User-agent: *
+Allow: /
+Sitemap: https://yoursite.com/sitemap.xml
+
+# Disallow framework files
+Disallow: /_framework/
+Disallow: /_content/
+
+# Allow important resources
+Allow: /css/
+Allow: /images/
