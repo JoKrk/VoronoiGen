@@ -16,11 +16,6 @@
 
 
 	<ItemGroup>
-	  <Folder Include="Services\Triangle.NET\" />
-	</ItemGroup>
-
-
-	<ItemGroup>
 	  <ProjectReference Include="..\Triangle\TriangleNet.csproj" />
 	</ItemGroup>
 </Project>

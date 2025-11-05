@@ -57,6 +57,7 @@ else
                    Holes="@(UseHoles ? _import!.Holes : null)"
                    ShowHoles="UseHoles"
                    Result="Result"
+                   GeodesicSegments="_geodesicSegments"
                    CanvasWidth="1024"
                    CanvasHeight="480" />
 }
@@ -107,6 +108,7 @@ else
             _effectiveBoundary = _import.Outer;
             _effectiveHoles = UseHoles ? _import.Holes : null;
             Result = null;
+            _geodesicSegments.Clear();
             StateHasChanged();
         }
         catch (Exception ex)
@@ -116,6 +118,7 @@ else
             _effectiveBoundary = null;
             _effectiveHoles = null;
             Result = null;
+            _geodesicSegments.Clear();
             StateHasChanged();
         }
     }
@@ -140,7 +143,7 @@ else
             _seeds = SeedGenerator.GenerateRandom(boundary, rawHoles, !UseHoles, SeedCount, RngSeed);
         }
 
-        // Compute Voronoi using offsets (affects clipping only; canvas remains anchored)
+        // Also compute the legacy polygon cells for export (kept for now)
         Result = LloydIterations > 0
             ? VoronoiEngine.ComputeWithLloyd(boundary, rawHoles, !UseHoles, _seeds, LloydIterations, _outerOffset, _innerOffset)
             : VoronoiEngine.Compute(boundary, rawHoles, !UseHoles, _seeds, _outerOffset, _innerOffset);
