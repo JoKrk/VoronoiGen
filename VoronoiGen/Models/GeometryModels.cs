@@ -102,5 +102,5 @@ namespace VoronoiGen.Models
         int RngSeed);
 
     // Result after Voronoi + clipping to boundary; cells are polygons
-    public record VoronoiResult(Polygon Boundary, List<Polygon> Cells, List<Vector2> Seeds);
+    public record VoronoiResult(Polygon OriginalBoundary, Polygon Boundary, List<Polygon> Cells, List<Vector2> Seeds);
 }

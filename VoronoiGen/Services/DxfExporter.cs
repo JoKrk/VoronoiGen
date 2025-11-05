@@ -52,10 +52,10 @@ namespace VoronoiGen.Services
             }
 
             // Layer 2: Add the outer boundary
-            if (result.Boundary?.Points.Count >= 3)
+            if (result.OriginalBoundary?.Points.Count >= 3)
             {
                 var boundaryVertices = new List<DxfLwPolylineVertex>();
-                foreach (var point in result.Boundary.Points)
+                foreach (var point in result.OriginalBoundary.Points)
                 {
                     boundaryVertices.Add(new DxfLwPolylineVertex
                     {

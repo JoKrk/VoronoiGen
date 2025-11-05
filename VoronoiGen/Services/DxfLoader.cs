@@ -13,12 +13,13 @@ namespace VoronoiGen.Services
     // - Uses IxMilia.Dxf to parse entities
     // - Collects closed LWPOLYLINE and POLYLINE (2D) loops and Circles
     // - Approximates bulge arcs using a chord tolerance
+    // - Handles SPLINE, ARC, and ELLIPSE entities with high fidelity
     // - Picks the largest-area loop as outer boundary
     // - Classifies all other loops whose centroid lies inside the outer as holes
     // - Optionally simplifies with Douglas–Peucker
     public static class DxfLoader
     {
-        public static DxfImport Load(byte[] bytes, double chordTolerance = 0.5, double simplifyTolerance = 0.0)
+        public static DxfImport Load(byte[] bytes, double chordTolerance = 0.1, double simplifyTolerance = 0.0)
         {
             if (bytes is null || bytes.Length == 0)
                 throw new ArgumentException("DXF bytes are empty");
@@ -59,8 +60,42 @@ namespace VoronoiGen.Services
                     rings.Add(pts);
             }
 
+            // SPLINE (closed splines become rings)
+            foreach (var sp in dxf.Entities.OfType<DxfSpline>())
+            {
+                if (!sp.IsClosed) continue;
+                var pts = ApproximateSpline(sp, chordTolerance);
+                if (pts.Count >= 3)
+                    rings.Add(pts);
+            }
+
+            // ELLIPSE (handle full ellipses and elliptical arcs)
+            foreach (var el in dxf.Entities.OfType<DxfEllipse>())
+            {
+                var pts = ApproximateEllipse(el, chordTolerance);
+                if (pts.Count >= 3)
+                    rings.Add(pts);
+            }
+
+            // ARC (open arcs won't form closed loops by themselves, but collect them anyway)
+            // Note: Open arcs typically need to be part of a boundary definition or combined with other entities
+            foreach (var arc in dxf.Entities.OfType<DxfArc>())
+            {
+                var pts = ApproximateArc(arc, chordTolerance);
+                if (pts.Count >= 2)
+                {
+                    // If arc is nearly a full circle (within tolerance), close it
+                    if (IsNearlyFullCircle(arc.StartAngle, arc.EndAngle))
+                    {
+                        pts = NormalizeClosed(pts);
+                        if (pts.Count >= 3)
+                            rings.Add(pts);
+                    }
+                }
+            }
+
             if (rings.Count == 0)
-                throw new InvalidOperationException("No closed outlines found in DXF. Expected closed LWPOLYLINE/POLYLINE or circle.");
+                throw new InvalidOperationException("No closed outlines found in DXF. Expected closed LWPOLYLINE/POLYLINE, SPLINE, CIRCLE, ELLIPSE, or ARC.");
 
             // Convert to Polygon, ensure no duplicate last point and orient CCW for now (we'll orient holes later)
             var polys = rings
@@ -166,6 +201,236 @@ namespace VoronoiGen.Services
                 pts.Add(new Vector2(center.X + (float)(r * Math.Cos(a)), center.Y + (float)(r * Math.Sin(a))));
             }
             return NormalizeClosed(pts);
+        }
+
+        private static List<Vector2> ApproximateSpline(DxfSpline spline, double chordTolerance)
+        {
+            // B-spline evaluation based on control points and knot vector
+            // Reference: https://pages.mtu.edu/~shene/COURSES/cs3621/NOTES/spline/B-spline/bspline-curve.html
+
+            if (spline.ControlPoints.Count < 2)
+                return new List<Vector2>();
+
+            // If fit points are provided and control points aren't, use fit points
+            if (spline.FitPoints.Count > 0 && spline.ControlPoints.Count == 0)
+            {
+                return spline.FitPoints
+                    .Select(p => new Vector2((float)p.X, (float)p.Y))
+                    .ToList();
+            }
+
+            var controlPoints = spline.ControlPoints
+                .Select(cp => new Vector2((float)cp.Point.X, (float)cp.Point.Y))
+                .ToList();
+
+            var weights = spline.ControlPoints
+                .Select(cp => cp.Weight)
+                .ToList();
+
+            var knots = spline.KnotValues.ToList();
+            int degree = spline.DegreeOfCurve;
+
+            // Validate knot vector
+            if (knots.Count == 0)
+            {
+                // Generate uniform knot vector if not provided
+                knots = GenerateUniformKnotVector(controlPoints.Count, degree);
+            }
+
+            // Estimate number of sample points based on chord tolerance
+            int numSamples = Math.Max(controlPoints.Count * 8, (int)(controlPoints.Count / Math.Max(chordTolerance, 0.01)));
+            numSamples = Math.Min(numSamples, 1000); // Cap at 1000 points
+
+            var result = new List<Vector2>(numSamples);
+
+            // Parameter range (typically from knot[degree] to knot[n])
+            double tStart = knots[degree];
+            double tEnd = knots[knots.Count - degree - 1];
+
+            for (int i = 0; i <= numSamples; i++)
+            {
+                double t = tStart + (tEnd - tStart) * (i / (double)numSamples);
+
+                // Clamp t to valid range
+                t = Math.Clamp(t, tStart, tEnd);
+
+                var point = EvaluateBSpline(controlPoints, weights, knots, degree, t, spline.IsRational);
+
+                // Apply chord tolerance filtering
+                if (result.Count == 0 || Vector2.Distance(result[^1], point) >= chordTolerance * 0.5)
+                {
+                    result.Add(point);
+                }
+            }
+
+            // Ensure last point is included
+            if (result.Count > 0)
+            {
+                var lastPoint = EvaluateBSpline(controlPoints, weights, knots, degree, tEnd, spline.IsRational);
+                if (Vector2.Distance(result[^1], lastPoint) >= 1e-6f)
+                {
+                    result.Add(lastPoint);
+                }
+            }
+
+            return result;
+        }
+
+        private static List<double> GenerateUniformKnotVector(int numControlPoints, int degree)
+        {
+            int numKnots = numControlPoints + degree + 1;
+            var knots = new List<double>(numKnots);
+
+            for (int i = 0; i < numKnots; i++)
+            {
+                knots.Add(i);
+            }
+
+            return knots;
+        }
+
+        private static Vector2 EvaluateBSpline(List<Vector2> controlPoints, List<double> weights,
+            List<double> knots, int degree, double t, bool isRational)
+        {
+            int n = controlPoints.Count - 1;
+
+            if (isRational)
+            {
+                // NURBS evaluation (rational B-spline)
+                var point = Vector2.Zero;
+                double weightSum = 0.0;
+
+                for (int i = 0; i <= n; i++)
+                {
+                    double basis = BSplineBasis(i, degree, t, knots);
+                    double w = weights[i];
+                    point += controlPoints[i] * (float)(basis * w);
+                    weightSum += basis * w;
+                }
+
+                return weightSum > 1e-10 ? point / (float)weightSum : point;
+            }
+            else
+            {
+                // Non-rational B-spline
+                var point = Vector2.Zero;
+
+                for (int i = 0; i <= n; i++)
+                {
+                    double basis = BSplineBasis(i, degree, t, knots);
+                    point += controlPoints[i] * (float)basis;
+                }
+
+                return point;
+            }
+        }
+
+        private static double BSplineBasis(int i, int p, double t, List<double> knots)
+        {
+            // Cox-de Boor recursion formula for B-spline basis functions
+            if (p == 0)
+            {
+                return (t >= knots[i] && t < knots[i + 1]) ? 1.0 : 0.0;
+            }
+
+            double denom1 = knots[i + p] - knots[i];
+            double denom2 = knots[i + p + 1] - knots[i + 1];
+
+            double term1 = 0.0;
+            if (Math.Abs(denom1) > 1e-10)
+            {
+                term1 = ((t - knots[i]) / denom1) * BSplineBasis(i, p - 1, t, knots);
+            }
+
+            double term2 = 0.0;
+            if (Math.Abs(denom2) > 1e-10)
+            {
+                term2 = ((knots[i + p + 1] - t) / denom2) * BSplineBasis(i + 1, p - 1, t, knots);
+            }
+
+            return term1 + term2;
+        }
+
+        private static List<Vector2> ApproximateEllipse(DxfEllipse ellipse, double chordTolerance)
+        {
+            var center = new Vector2((float)ellipse.Center.X, (float)ellipse.Center.Y);
+            var majorAxis = new Vector2((float)ellipse.MajorAxis.X, (float)ellipse.MajorAxis.Y);
+            double minorAxisRatio = ellipse.MinorAxisRatio;
+            double startParam = ellipse.StartParameter;
+            double endParam = ellipse.EndParameter;
+
+            // Calculate semi-major and semi-minor axes
+            double semiMajor = majorAxis.Length();
+            double semiMinor = semiMajor * minorAxisRatio;
+
+            // Major axis angle
+            double majorAngle = Math.Atan2(majorAxis.Y, majorAxis.X);
+
+            // Determine angular span
+            double angularSpan = endParam - startParam;
+            if (angularSpan < 0)
+                angularSpan += 2.0 * Math.PI;
+
+            // Estimate segments based on chord tolerance and the larger axis
+            double maxRadius = Math.Max(semiMajor, semiMinor);
+            int segments = EstimateSegmentsFromTolerance(maxRadius, angularSpan, chordTolerance);
+            segments = Math.Max(segments, 16); // Minimum segments for smooth ellipses
+
+            var pts = new List<Vector2>(segments + 1);
+            for (int i = 0; i <= segments; i++)
+            {
+                double t = startParam + angularSpan * (i / (double)segments);
+
+                // Parametric ellipse equation
+                double x = semiMajor * Math.Cos(t);
+                double y = semiMinor * Math.Sin(t);
+
+                // Rotate by major axis angle
+                double xRot = x * Math.Cos(majorAngle) - y * Math.Sin(majorAngle);
+                double yRot = x * Math.Sin(majorAngle) + y * Math.Cos(majorAngle);
+
+                pts.Add(new Vector2(
+                    center.X + (float)xRot,
+                    center.Y + (float)yRot
+                ));
+            }
+
+            return pts;
+        }
+
+        private static List<Vector2> ApproximateArc(DxfArc arc, double chordTolerance)
+        {
+            var center = new Vector2((float)arc.Center.X, (float)arc.Center.Y);
+            double radius = arc.Radius;
+            double startAngle = arc.StartAngle * Math.PI / 180.0; // Convert to radians
+            double endAngle = arc.EndAngle * Math.PI / 180.0;
+
+            // Normalize angles and calculate sweep
+            double sweep = endAngle - startAngle;
+            if (sweep < 0)
+                sweep += 2.0 * Math.PI;
+
+            int segments = EstimateSegmentsFromTolerance(radius, sweep, chordTolerance);
+            segments = Math.Max(segments, 2);
+
+            var pts = new List<Vector2>(segments + 1);
+            for (int i = 0; i <= segments; i++)
+            {
+                double angle = startAngle + sweep * (i / (double)segments);
+                pts.Add(new Vector2(
+                    center.X + (float)(radius * Math.Cos(angle)),
+                    center.Y + (float)(radius * Math.Sin(angle))
+                ));
+            }
+
+            return pts;
+        }
+
+        private static bool IsNearlyFullCircle(double startAngleDeg, double endAngleDeg)
+        {
+            double diff = Math.Abs(endAngleDeg - startAngleDeg);
+            // Check if the arc spans approximately 360 degrees (within 1 degree tolerance)
+            return Math.Abs(diff - 360.0) < 1.0 || diff < 1.0;
         }
 
         private static List<Vector2> ApproximateBulgeArc(Vector2 p0, Vector2 p1, double bulge, double chordTolerance)

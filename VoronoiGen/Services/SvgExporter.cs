@@ -11,7 +11,7 @@ namespace VoronoiGen.Services
     {
         public static string Export(VoronoiResult result, List<Polygon>? holes = null, float strokeWidth = 1f)
         {
-            var bounds = result.Boundary.GetBounds();
+            var bounds = result.OriginalBoundary.GetBounds();
             var sb = new StringBuilder();
 
             sb.Append("<svg xmlns=\"http://www.w3.org/2000/svg\" ");
@@ -21,12 +21,12 @@ namespace VoronoiGen.Services
             // Layer 1: Outer Boundary (red stroke)
             sb.Append("<g id=\"boundary\" fill=\"none\" stroke=\"#FF0000\" ");
             sb.AppendFormat(CultureInfo.InvariantCulture, "stroke-width=\"{0}\">", strokeWidth * 1.5f);
-            if (result.Boundary.Points.Count >= 3)
+            if (result.OriginalBoundary.Points.Count >= 3)
             {
                 sb.Append("<path d=\"");
-                for (int i = 0; i < result.Boundary.Points.Count; i++)
+                for (int i = 0; i < result.OriginalBoundary.Points.Count; i++)
                 {
-                    var p = result.Boundary.Points[i];
+                    var p = result.OriginalBoundary.Points[i];
                     sb.Append(i == 0 ? "M" : "L");
                     sb.AppendFormat(CultureInfo.InvariantCulture, "{0},{1}", p.X, p.Y);
                 }

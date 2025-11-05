@@ -40,7 +40,7 @@ namespace VoronoiGen.Services
 
             token.ThrowIfCancellationRequested();
 
-            return new VoronoiResult(workOuter, processed, filteredSeeds);
+            return new VoronoiResult(boundary, workOuter, processed, filteredSeeds);
         }
 
         public static VoronoiResult ComputeWithLloyd(
@@ -88,7 +88,7 @@ namespace VoronoiGen.Services
             var processed = PostProcessCells(finalCells, workOuter, workHoles, ignoreHoles, cellGap, smoothIterations, minCellArea, maxAspectRatio, token);
 
             token.ThrowIfCancellationRequested();
-            return new VoronoiResult(workOuter, processed, currentSeeds);
+            return new VoronoiResult(boundary, workOuter, processed, currentSeeds);
         }
 
         // --- Core Voronoi by half-plane clipping ---
