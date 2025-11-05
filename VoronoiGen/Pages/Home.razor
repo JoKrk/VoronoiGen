@@ -7,118 +7,159 @@
 
 <PageTitle>Voronoi DXF Tool</PageTitle>
 
-<header>
-    <h1>Voronoi DXF — Holes + Offsets</h1>
-    <p class="text-muted">Generate Voronoi diagrams from DXF files with advanced control over cell distribution, smoothing, and offset parameters.</p>
-</header>
+<div class="app-layout">
+    <!-- Sidebar with Controls -->
+    <aside class="sidebar">
+        <header class="sidebar-header">
+            <h1>Voronoi DXF</h1>
+            <p class="text-muted text-small">Generate Voronoi diagrams from DXF files</p>
+        </header>
 
-<!-- File Upload Section -->
-<section class="upload-section">
-    <InputFile OnChange="OnFileSelected" accept=".dxf" />
+        <!-- File Upload Section -->
+        <section class="upload-section">
+            <InputFile OnChange="OnFileSelected" accept=".dxf" />
 
-    @if (_import?.Outer is null)
-    {
-        <p class="mt-3">📁 Upload a DXF file with a closed outline to begin.</p>
-    }
-    else
-    {
-        <p class="mt-3" style="color: var(--color-success); font-weight: 500;">
-            ✓ Boundary loaded — Area: <code>@_import!.Outer.Area():F0</code> units² | Holes: <code>@_import!.Holes.Count</code>
-        </p>
-    }
-</section>
+            @if (_import?.Outer is null)
+            {
+                <p class="upload-status">📁 Upload a DXF file to begin</p>
+            }
+            else
+            {
+                <div class="upload-status success">
+                    <strong>✓ Boundary loaded</strong>
+                    <div class="status-details">
+                        <span>Area: <code>@Math.Round(_import!.Outer.Area(),2)</code></span>
+                        <span>Holes: <code>@_import!.Holes.Count</code></span>
+                    </div>
+                </div>
+            }
+        </section>
 
-<!-- Parameter Controls -->
-<section class="controls">
-    <!-- Boundary Controls -->
-    <label title="Enable or disable hole detection in the imported geometry. When enabled, holes will be respected as void regions where no Voronoi cells will be generated.">
-        Use Holes
-        <input type="checkbox" @bind="UseHoles" disabled="@IsGenerating" />
-    </label>
+        <!-- Parameter Controls -->
+        <section class="controls">
+            <h3 class="section-title">Parameters</h3>
 
-    <label title="Inset margin from the outer boundary. Positive values push Voronoi cells away from the boundary edge, creating a margin. Applied as a negative offset to shrink the working boundary.">
-        Outer Offset
-        <input type="number" step="0.5" min="0" @bind="OuterOffset" disabled="@IsGenerating" />
-    </label>
+            <!-- Boundary Controls -->
+            <div class="control-group">
+                <h4 class="group-title">Boundary</h4>
 
-    <label title="Expands hole boundaries outward. Positive values grow hole masks, reducing the available area for Voronoi cell generation around obstacles.">
-        Inner Offset
-        <input type="number" step="0.5" min="0" @bind="InnerOffset" disabled="@IsGenerating" />
-    </label>
+                <label title="Enable or disable hole detection in the imported geometry. When enabled, holes will be respected as void regions where no Voronoi cells will be generated.">
+                    Use Holes
+                    <input type="checkbox" @bind="UseHoles" disabled="@IsGenerating" />
+                </label>
 
-    <!-- Seed Generation Controls -->
-    <label title="Minimum spacing between seed points using Poisson disk sampling. Larger values create more uniform, evenly-spaced distributions. Measured in the same units as your DXF geometry.">
-        Min Spacing (Poisson Radius)
-        <input type="number" step="0.5" min="1" @bind="PoissonRadius" disabled="@IsGenerating" />
-    </label>
+                <label title="Inset margin from the outer boundary. Positive values push Voronoi cells away from the boundary edge, creating a margin. Applied as a negative offset to shrink the working boundary.">
+                    Outer Offset
+                    <input type="number" step="0.5" min="0" @bind="OuterOffset" disabled="@IsGenerating" />
+                </label>
 
-    <label title="Target number of seed points when using random generation (fallback if Poisson sampling fails). Higher values create more, smaller Voronoi cells.">
-        Seed Count
-        <input type="number" min="1" max="5000" @bind="SeedCount" disabled="@IsGenerating" />
-    </label>
+                <label title="Expands hole boundaries outward. Positive values grow hole masks, reducing the available area for Voronoi cell generation around obstacles.">
+                    Inner Offset
+                    <input type="number" step="0.5" min="0" @bind="InnerOffset" disabled="@IsGenerating" />
+                </label>
+            </div>
 
-    <label title="Random number generator seed for reproducible results. Using the same seed with identical parameters will produce the exact same pattern.">
-        RNG Seed
-        <input type="number" @bind="RngSeed" disabled="@IsGenerating" />
-    </label>
+            <!-- Seed Generation Controls -->
+            <div class="control-group">
+                <h4 class="group-title">Seed Generation</h4>
 
-    <!-- Relaxation & Smoothing -->
-    <label title="Number of Lloyd relaxation iterations. Each iteration moves seed points toward their cell centroids, creating more uniform cell shapes and sizes. Values of 2-5 typically produce good results. 0 disables relaxation.">
-        Lloyd Iterations
-        <input type="number" min="0" max="10" @bind="LloydIterations" disabled="@IsGenerating" />
-    </label>
+                <label title="Minimum spacing between seed points using Poisson disk sampling. Larger values create more uniform, evenly-spaced distributions. Measured in the same units as your DXF geometry.">
+                    Min Spacing (Poisson)
+                    <input type="number" step="0.5" min="1" @bind="PoissonRadius" disabled="@IsGenerating" />
+                </label>
 
-    <label title="Spacing between adjacent Voronoi cells. This gap is applied symmetrically, shrinking each cell by half the gap value. Creates visible separation between cells. Set to 0 for no gaps.">
-        Cell Gap
-        <input type="number" step="0.5" min="0" @bind="CellGap" disabled="@IsGenerating" />
-    </label>
+                <label title="Target number of seed points when using random generation (fallback if Poisson sampling fails). Higher values create more, smaller Voronoi cells.">
+                    Seed Count
+                    <input type="number" min="1" max="5000" @bind="SeedCount" disabled="@IsGenerating" />
+                </label>
 
-    <label title="Number of Chaikin corner-cutting smoothing iterations applied to each cell polygon. Higher values create smoother, more organic curves but reduce angular detail. 0 preserves sharp corners.">
-        Smooth Iterations
-        <input type="number" min="0" max="10" @bind="SmoothIterations" disabled="@IsGenerating" />
-    </label>
+                <label title="Random number generator seed for reproducible results. Using the same seed with identical parameters will produce the exact same pattern.">
+                    RNG Seed
+                    <input type="number" @bind="RngSeed" disabled="@IsGenerating" />
+                </label>
 
-    <label title="Uniform grow/shrink applied to each cell after gap calculation. Positive values expand cells outward, negative values shrink them inward. Applied after Cell Gap. Useful for fine-tuning final cell sizes.">
-        Cell Offset
-        <input type="number" step="0.5" @bind="CellOffset" disabled="@IsGenerating" />
-    </label>
+                <label title="Number of Lloyd relaxation iterations. Each iteration moves seed points toward their cell centroids, creating more uniform cell shapes and sizes. Values of 2-5 typically produce good results. 0 disables relaxation.">
+                    Lloyd Iterations
+                    <input type="number" min="0" max="10" @bind="LloydIterations" disabled="@IsGenerating" />
+                </label>
+            </div>
 
-    <!-- Action Buttons -->
-    <button @onclick="Generate" disabled="@(_import is null || IsGenerating)">
-        @(IsGenerating ? "⏳ Generating…" : "▶️ Generate")
-    </button>
+            <!-- Cell Processing Controls -->
+            <div class="control-group">
+                <h4 class="group-title">Cell Processing</h4>
 
+                <label title="Spacing between adjacent Voronoi cells. This gap is applied symmetrically, shrinking each cell by half the gap value. Creates visible separation between cells. Set to 0 for no gaps.">
+                    Cell Gap
+                    <input type="number" step="0.5" min="0" @bind="CellGap" disabled="@IsGenerating" />
+                </label>
 
-    <button @onclick="ExportSvg" disabled="@(Result is null || IsGenerating)">
-        📄 Export SVG
-    </button>
+                <label title="Number of Chaikin corner-cutting smoothing iterations applied to each cell polygon. Higher values create smoother, more organic curves but reduce angular detail. 0 preserves sharp corners.">
+                    Smooth Iterations
+                    <input type="number" min="0" max="10" @bind="SmoothIterations" disabled="@IsGenerating" />
+                </label>
 
-    <button @onclick="ExportDxf" disabled="@(Result is null || IsGenerating)">
-        📐 Export DXF
-    </button>
-</section>
+                <label title="Uniform grow/shrink applied to each cell after gap calculation. Positive values expand cells outward, negative values shrink them inward. Applied after Cell Gap. Useful for fine-tuning final cell sizes.">
+                    Cell Offset
+                    <input type="number" step="0.5" @bind="CellOffset" disabled="@IsGenerating" />
+                </label>
+            </div>
+        </section>
 
-<!-- Generation Status -->
-@if (IsGenerating)
-{
-    <div class="gen-status">
-        <div class="spinner" role="status" aria-label="Generating Voronoi diagram"></div>
-        <span>Generating Voronoi diagram… This may take a moment for complex geometries.</span>
-    </div>
-}
+        <!-- Action Buttons -->
+        <section class="actions">
+            <button class="btn-primary" @onclick="Generate" disabled="@(_import is null || IsGenerating)">
+                @(IsGenerating ? "⏳ Generating…" : "▶️ Generate")
+            </button>
 
-<!-- Canvas Visualization -->
-@if (_import?.Outer is not null)
-{
-    <section class="canvas-section">
-        <VoronoiCanvas Boundary="_import!.Outer"
-                       Holes="@(UseHoles ? _import!.Holes : null)"
-                       ShowHoles="UseHoles"
-                       Result="Result"
-                       CanvasWidth="1200"
-                       CanvasHeight="600" />
-    </section>
-}
+            <button class="btn-success" @onclick="ExportSvg" disabled="@(Result is null || IsGenerating)">
+                📄 Export SVG
+            </button>
+
+            <button class="btn-success" @onclick="ExportDxf" disabled="@(Result is null || IsGenerating)">
+                📐 Export DXF
+            </button>
+        </section>
+
+        <!-- Generation Status -->
+        @if (IsGenerating)
+        {
+            <div class="gen-status">
+                <div class="spinner" role="status" aria-label="Generating Voronoi diagram"></div>
+                <span>Generating…</span>
+            </div>
+        }
+    </aside>
+
+    <!-- Main Canvas Area -->
+    <main class="canvas-area">
+        @if (_import?.Outer is null)
+        {
+            <div class="canvas-placeholder">
+                <div class="placeholder-content">
+                    <svg width="120" height="120" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                        <polyline points="14 2 14 8 20 8"></polyline>
+                        <line x1="12" y1="18" x2="12" y2="12"></line>
+                        <line x1="9" y1="15" x2="15" y2="15"></line>
+                    </svg>
+                    <h2>Upload a DXF File</h2>
+                    <p>Select a DXF file with a closed outline from the sidebar to begin generating Voronoi diagrams.</p>
+                </div>
+            </div>
+        }
+        else
+        {
+            <div class="canvas-container">
+                <VoronoiCanvas Boundary="_import!.Outer"
+                               Holes="@(UseHoles ? _import!.Holes : null)"
+                               ShowHoles="UseHoles"
+                               Result="Result"
+                               CanvasWidth="1400"
+                               CanvasHeight="800" />
+            </div>
+        }
+    </main>
+</div>
 
 @code {
     private DxfImport? _import;

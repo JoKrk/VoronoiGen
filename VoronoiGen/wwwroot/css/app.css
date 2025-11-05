@@ -1,6 +1,6 @@
 ﻿/* ========================================
    Apple-Inspired Design System
-   Optimized for Desktop Browsers
+   Optimized for Desktop Browsers with Sidebar Layout
    ======================================== */
 
 :root {
@@ -23,6 +23,7 @@
     --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02);
     --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.05), 0 2px 4px rgba(0, 0, 0, 0.03);
     --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.08), 0 4px 6px rgba(0, 0, 0, 0.04);
+    --shadow-xl: 0 20px 25px rgba(0, 0, 0, 0.1), 0 10px 10px rgba(0, 0, 0, 0.04);
     /* Typography */
     --font-system: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
     --font-mono: "SF Mono", Monaco, "Cascadia Code", "Roboto Mono", Consolas, "Courier New", monospace;
@@ -41,6 +42,8 @@
     /* Transitions */
     --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
     --transition-base: 200ms cubic-bezier(0.4, 0, 0.2, 1);
+    /* Sidebar */
+    --sidebar-width: 380px;
 }
 
 /* ========================================
@@ -53,7 +56,8 @@ body {
     color: var(--color-text-primary);
     line-height: 1.5;
     margin: 0;
-    padding: var(--space-lg);
+    padding: 0;
+    overflow: hidden;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
 }
@@ -63,31 +67,95 @@ body {
 }
 
 /* ========================================
-   Typography
+   App Layout (Sidebar + Canvas)
    ======================================== */
 
-h1 {
-    font-size: 2.5rem;
-    font-weight: 700;
-    letter-spacing: -0.02em;
-    color: var(--color-text-primary);
-    margin: 0 0 var(--space-xl) 0;
-    line-height: 1.1;
+.app-layout {
+    display: flex;
+    height: 100vh;
+    width: 100%;
+    overflow: hidden;
 }
 
-p {
+/* ========================================
+   Sidebar
+   ======================================== */
+
+.sidebar {
+    width: var(--sidebar-width);
+    background: var(--color-surface);
+    border-right: 1px solid var(--color-border-light);
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    overflow-x: hidden;
+    box-shadow: var(--shadow-md);
+    z-index: 10;
+}
+
+.sidebar-header {
+    padding: var(--space-lg);
+    border-bottom: 1px solid var(--color-border-light);
+    background: var(--color-surface-elevated);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+}
+
+    .sidebar-header h1 {
+        font-size: 1.75rem;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        color: var(--color-text-primary);
+        margin: 0 0 var(--space-xs) 0;
+        line-height: 1.1;
+    }
+
+    .sidebar-header p {
+        margin: 0;
+        font-size: 0.875rem;
+    }
+
+/* ========================================
+   Upload Section
+   ======================================== */
+
+.upload-section {
+    padding: var(--space-lg);
+    border-bottom: 1px solid var(--color-border-light);
+    background: var(--color-background);
+}
+
+.upload-status {
+    margin-top: var(--space-md);
+    padding: var(--space-md);
+    background: var(--color-surface);
+    border: 1px solid var(--color-border-light);
+    border-radius: var(--radius-md);
+    font-size: 0.875rem;
     color: var(--color-text-secondary);
-    font-size: 1rem;
-    margin: var(--space-md) 0;
 }
 
-code {
-    color: var(--color-primary);
-    background: rgba(0, 122, 255, 0.06);
-    padding: 2px 6px;
-    border-radius: 4px;
-    font-family: var(--font-mono);
-    font-size: 0.9em;
+    .upload-status.success {
+        background: rgba(52, 199, 89, 0.06);
+        border-color: rgba(52, 199, 89, 0.3);
+        color: var(--color-success);
+    }
+
+        .upload-status.success strong {
+            display: block;
+            font-weight: 600;
+            margin-bottom: var(--space-xs);
+            color: var(--color-success);
+        }
+
+.status-details {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    margin-top: var(--space-sm);
+    font-size: 0.8125rem;
+    color: var(--color-text-secondary);
 }
 
 /* ========================================
@@ -95,105 +163,144 @@ code {
    ======================================== */
 
 .controls {
-    background: var(--color-surface);
-    border: 1px solid var(--color-border-light);
-    border-radius: var(--radius-lg);
+    flex: 1;
     padding: var(--space-lg);
-    margin: var(--space-xl) 0;
-    box-shadow: var(--shadow-sm);
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-    gap: var(--space-lg);
-    align-items: start;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xl);
 }
 
-    .controls label {
-        display: flex;
-        flex-direction: column;
-        gap: var(--space-sm);
-        font-size: 0.875rem;
-        font-weight: 500;
-        color: var(--color-text-primary);
-        cursor: pointer;
-        position: relative;
+.section-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--color-text-primary);
+    margin: 0 0 var(--space-md) 0;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-size: 0.75rem;
+    color: var(--color-text-tertiary);
+}
+
+.control-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+}
+
+.group-title {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--color-text-primary);
+    margin: 0 0 var(--space-sm) 0;
+    padding-bottom: var(--space-xs);
+    border-bottom: 1px solid var(--color-border-light);
+}
+
+.controls label {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--color-text-primary);
+    cursor: pointer;
+    position: relative;
+}
+
+    /* Parameter Descriptions */
+    .controls label::after {
+        content: attr(title);
+        display: block;
+        font-size: 0.6875rem;
+        font-weight: 400;
+        color: var(--color-text-tertiary);
+        line-height: 1.4;
     }
 
-        /* Parameter Descriptions */
-        .controls label::after {
-            content: attr(title);
-            display: block;
-            font-size: 0.75rem;
-            font-weight: 400;
-            color: var(--color-text-tertiary);
-            margin-top: var(--space-xs);
-            line-height: 1.4;
-        }
+    /* Remove default title tooltips since we're showing them inline */
+    .controls label[title]:hover::before {
+        content: none;
+    }
 
-        /* Remove default title tooltips since we're showing them inline */
-        .controls label[title]:hover::before {
-            content: none;
-        }
-
-    /* ========================================
+/* ========================================
    Input Fields
    ======================================== */
 
-    .controls input[type="number"],
-    .controls input[type="text"] {
-        width: 100%;
-        padding: var(--space-sm) var(--space-md);
-        font-size: 1rem;
-        font-family: var(--font-system);
-        color: var(--color-text-primary);
-        background: var(--color-surface);
-        border: 1.5px solid var(--color-border);
-        border-radius: var(--radius-sm);
-        transition: all var(--transition-base);
-        outline: none;
+.controls input[type="number"],
+.controls input[type="text"] {
+    width: 100%;
+    padding: var(--space-sm) var(--space-md);
+    font-size: 0.9375rem;
+    font-family: var(--font-system);
+    color: var(--color-text-primary);
+    background: var(--color-surface);
+    border: 1.5px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    transition: all var(--transition-base);
+    outline: none;
+}
+
+    .controls input[type="number"]:hover:not(:disabled),
+    .controls input[type="text"]:hover:not(:disabled) {
+        border-color: var(--color-text-tertiary);
     }
 
-        .controls input[type="number"]:hover:not(:disabled),
-        .controls input[type="text"]:hover:not(:disabled) {
-            border-color: var(--color-text-tertiary);
-        }
-
-        .controls input[type="number"]:focus,
-        .controls input[type="text"]:focus {
-            border-color: var(--color-primary);
-            box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.1);
-        }
-
-        .controls input[type="number"]:disabled,
-        .controls input[type="text"]:disabled {
-            background: var(--color-background);
-            color: var(--color-text-tertiary);
-            cursor: not-allowed;
-            opacity: 0.6;
-        }
-
-    /* Checkbox Styling */
-    .controls input[type="checkbox"] {
-        width: 20px;
-        height: 20px;
-        margin: 0;
-        cursor: pointer;
-        accent-color: var(--color-primary);
+    .controls input[type="number"]:focus,
+    .controls input[type="text"]:focus {
+        border-color: var(--color-primary);
+        box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.1);
     }
 
-    .controls label:has(input[type="checkbox"]) {
-        flex-direction: row;
-        align-items: center;
-        gap: var(--space-sm);
+    .controls input[type="number"]:disabled,
+    .controls input[type="text"]:disabled {
+        background: var(--color-background);
+        color: var(--color-text-tertiary);
+        cursor: not-allowed;
+        opacity: 0.6;
     }
+
+/* Checkbox Styling */
+.controls input[type="checkbox"] {
+    width: 20px;
+    height: 20px;
+    margin: 0;
+    cursor: pointer;
+    accent-color: var(--color-primary);
+}
+
+.controls label:has(input[type="checkbox"]) {
+    flex-direction: row;
+    align-items: center;
+    gap: var(--space-sm);
+}
+
+    .controls label:has(input[type="checkbox"])::after {
+        margin-left: 26px;
+    }
+
+/* ========================================
+   Actions Section
+   ======================================== */
+
+.actions {
+    padding: var(--space-lg);
+    border-top: 1px solid var(--color-border-light);
+    background: var(--color-background);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+    position: sticky;
+    bottom: 0;
+}
 
 /* ========================================
    Buttons
    ======================================== */
 
 button {
-    padding: var(--space-sm) var(--space-lg);
+    padding: var(--space-md) var(--space-lg);
     font-size: 0.9375rem;
-    font-weight: 500;
+    font-weight: 600;
     font-family: var(--font-system);
     color: var(--color-surface);
     background: var(--color-primary);
@@ -203,6 +310,7 @@ button {
     transition: all var(--transition-base);
     box-shadow: var(--shadow-sm);
     white-space: nowrap;
+    text-align: center;
 }
 
     button:hover:not(:disabled) {
@@ -224,65 +332,132 @@ button {
         transform: none;
     }
 
-    /* Button Variants */
-    button[onclick*="Cancel"] {
-        background: var(--color-danger);
+.btn-primary {
+    background: var(--color-primary);
+}
+
+    .btn-primary:hover:not(:disabled) {
+        background: var(--color-primary-hover);
     }
 
-        button[onclick*="Cancel"]:hover:not(:disabled) {
-            background: #cc2e25;
-        }
+.btn-success {
+    background: var(--color-success);
+}
 
-    button[onclick*="Export"] {
-        background: var(--color-success);
+    .btn-success:hover:not(:disabled) {
+        background: #2ba548;
     }
 
-        button[onclick*="Export"]:hover:not(:disabled) {
-            background: #2ba548;
-        }
+.btn-danger {
+    background: var(--color-danger);
+}
+
+    .btn-danger:hover:not(:disabled) {
+        background: #cc2e25;
+    }
 
 /* ========================================
    File Upload
    ======================================== */
 
-input[type="file"]::file-selector-button {
-    padding: var(--space-sm) var(--space-lg);
-    font-size: 0.9375rem;
-    font-weight: 500;
-    font-family: var(--font-system);
-    color: var(--color-primary);
-    background: rgba(0, 122, 255, 0.06);
-    border: 1.5px solid var(--color-primary);
-    border-radius: var(--radius-md);
-    cursor: pointer;
-    transition: all var(--transition-base);
-    margin-right: var(--space-md);
-}
-
-    input[type="file"]::file-selector-button:hover {
-        background: rgba(0, 122, 255, 0.12);
-        border-color: var(--color-primary-hover);
-    }
-
 input[type="file"] {
-    font-size: 0.9375rem;
+    width: 100%;
+    font-size: 0.875rem;
     color: var(--color-text-secondary);
     cursor: pointer;
-    padding: var(--space-md) 0;
+    padding: 0;
 }
 
+    input[type="file"]::file-selector-button {
+        padding: var(--space-sm) var(--space-lg);
+        font-size: 0.875rem;
+        font-weight: 500;
+        font-family: var(--font-system);
+        color: var(--color-primary);
+        background: rgba(0, 122, 255, 0.06);
+        border: 1.5px solid var(--color-primary);
+        border-radius: var(--radius-sm);
+        cursor: pointer;
+        transition: all var(--transition-base);
+        margin-right: var(--space-md);
+    }
+
+        input[type="file"]::file-selector-button:hover {
+            background: rgba(0, 122, 255, 0.12);
+            border-color: var(--color-primary-hover);
+        }
+
 /* ========================================
-   Canvas Container
+   Canvas Area
    ======================================== */
+
+.canvas-area {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--color-background);
+    overflow: hidden;
+    position: relative;
+}
+
+.canvas-container {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-lg);
+}
 
 canvas {
     border: 1px solid var(--color-border-light) !important;
     border-radius: var(--radius-lg) !important;
     display: block !important;
-    box-shadow: var(--shadow-md) !important;
+    box-shadow: var(--shadow-lg) !important;
     background: var(--color-surface) !important;
-    margin: var(--space-xl) auto !important;
+    max-width: 100% !important;
+    max-height: 100% !important;
+    object-fit: contain !important;
 }
+
+/* ========================================
+   Canvas Placeholder
+   ======================================== */
+
+.canvas-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+}
+
+.placeholder-content {
+    text-align: center;
+    max-width: 400px;
+    padding: var(--space-2xl);
+    color: var(--color-text-tertiary);
+}
+
+    .placeholder-content svg {
+        color: var(--color-border);
+        margin-bottom: var(--space-xl);
+    }
+
+    .placeholder-content h2 {
+        font-size: 1.5rem;
+        font-weight: 600;
+        color: var(--color-text-secondary);
+        margin: 0 0 var(--space-md) 0;
+    }
+
+    .placeholder-content p {
+        font-size: 0.9375rem;
+        color: var(--color-text-tertiary);
+        line-height: 1.6;
+        margin: 0;
+    }
 
 /* ========================================
    Status & Loading
@@ -298,12 +473,14 @@ canvas {
     border-radius: var(--radius-md);
     color: var(--color-primary);
     font-weight: 500;
-    margin: var(--space-lg) 0;
+    font-size: 0.875rem;
+    margin: var(--space-lg);
+    margin-top: 0;
 }
 
 .spinner {
-    width: 18px;
-    height: 18px;
+    width: 16px;
+    height: 16px;
     border: 2.5px solid rgba(0, 122, 255, 0.2);
     border-top-color: var(--color-primary);
     border-radius: 50%;
@@ -327,7 +504,7 @@ canvas {
     border: 1px solid var(--color-border-light);
     border-radius: var(--radius-sm);
     padding: var(--space-md);
-    margin-top: var(--space-lg);
+    margin: var(--space-lg);
     color: var(--color-text-secondary);
     line-height: 1.6;
 }
@@ -340,6 +517,27 @@ canvas {
         .debug > div:last-child {
             border-bottom: none;
         }
+
+/* ========================================
+   Typography Utilities
+   ======================================== */
+
+code {
+    color: var(--color-primary);
+    background: rgba(0, 122, 255, 0.06);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: var(--font-mono);
+    font-size: 0.9em;
+}
+
+.text-muted {
+    color: var(--color-text-secondary);
+}
+
+.text-small {
+    font-size: 0.875rem;
+}
 
 /* ========================================
    Validation States
@@ -401,7 +599,7 @@ canvas {
     padding: var(--space-lg) var(--space-lg) var(--space-lg) var(--space-2xl);
     color: white;
     border-radius: var(--radius-md);
-    margin: var(--space-lg) 0;
+    margin: var(--space-lg);
     box-shadow: var(--shadow-lg);
     position: relative;
 }
@@ -475,63 +673,35 @@ canvas {
 }
 
 /* ========================================
-   Responsive Optimizations (Desktop-First)
+   Responsive Adjustments
    ======================================== */
 
-@media (min-width: 1400px) {
-    body {
-        max-width: 1600px;
-        margin: 0 auto;
-        padding: var(--space-2xl);
-    }
-
-    .controls {
-        grid-template-columns: repeat(4, 1fr);
-    }
-}
-
-@media (min-width: 1200px) and (max-width: 1399px) {
-    .controls {
-        grid-template-columns: repeat(3, 1fr);
-    }
-}
-
-@media (max-width: 1199px) {
-    .controls {
-        grid-template-columns: repeat(2, 1fr);
+@media (max-width: 1024px) {
+    :root {
+        --sidebar-width: 320px;
     }
 }
 
 @media (max-width: 768px) {
-    body {
-        padding: var(--space-md);
+    .app-layout {
+        flex-direction: column;
     }
 
-    h1 {
-        font-size: 2rem;
+    .sidebar {
+        width: 100%;
+        max-height: 50vh;
+        border-right: none;
+        border-bottom: 1px solid var(--color-border-light);
     }
 
-    .controls {
-        grid-template-columns: 1fr;
-        gap: var(--space-md);
+    .canvas-area {
+        min-height: 50vh;
     }
 }
 
 /* ========================================
    Utility Classes
    ======================================== */
-
-.hidden {
-    display: none !important;
-}
-
-.text-muted {
-    color: var(--color-text-secondary);
-}
-
-.text-small {
-    font-size: 0.875rem;
-}
 
 .mt-0 {
     margin-top: 0 !important;
