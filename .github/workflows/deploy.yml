@@ -10,19 +10,24 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-      - name: Checkout
+      - name: Checkout code
         uses: actions/checkout@v4
       
-      - name: Setup .NET
+      - name: Setup .NET 9
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '9.0.x'
       
-      - name: Restore
-        run: dotnet restore VoronoiGen/VoronoiGen.csproj
+      - name: Install wasm-tools workload
+        run: dotnet workload install wasm-tools
       
-      - name: Publish
-        run: dotnet publish VoronoiGen/VoronoiGen.csproj -c Release -o output
+      - name: Restore NuGet packages
+        run: dotnet restore
+        working-directory: ./VoronoiGen
+      
+      - name: Build and Publish
+        run: dotnet publish -c Release -o ../output
+        working-directory: ./VoronoiGen
       
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/pages-action@v1
