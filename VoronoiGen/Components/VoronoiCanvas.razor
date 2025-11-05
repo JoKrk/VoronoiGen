@@ -109,6 +109,15 @@ else
             // Compute bounds from the currently drawn working boundary
             var bounds = ComputeBounds(workBoundary.Points);
             _lastBounds = bounds;
+
+            // If we have a Result, also include the original boundary in bounds to ensure it's visible
+            if (Result is not null && originalBoundary is not null && originalBoundary.Points.Count >= 3)
+            {
+                var originalBounds = ComputeBounds(originalBoundary.Points);
+                bounds = UnionBounds(bounds, originalBounds);
+                _lastBounds = bounds;  // Update debug info
+            }
+
             if (bounds.Width <= 0 || bounds.Height <= 0)
             {
                 await _module.InvokeVoidAsync("clearCanvas", _canvasRef, pixelW, pixelH);
@@ -124,6 +133,26 @@ else
             var contentH = bounds.Height * scale;
             var offsetX = (pixelW - contentW) * 0.5;
             var offsetY = (pixelH - contentH) * 0.5;
+
+            // Replace the above scaling and offset logic with the following to add a margin:
+            const int margin = 20;  // Adjust this value as needed for more/less margin
+            var effectiveW = pixelW - 2 * margin;
+            var effectiveH = pixelH - 2 * margin;
+            if (effectiveW <= 0 || effectiveH <= 0)
+            {
+                await _module.InvokeVoidAsync("clearCanvas", _canvasRef, pixelW, pixelH);
+                return;
+            }
+
+            scaleX = effectiveW / bounds.Width;
+            scaleY = effectiveH / bounds.Height;
+            scale = (float)Math.Min(scaleX, scaleY);
+            _lastScale = scale;
+
+            contentW = bounds.Width * scale;
+            contentH = bounds.Height * scale;
+            offsetX = margin + (effectiveW - contentW) * 0.5;
+            offsetY = margin + (effectiveH - contentH) * 0.5;
 
             _cellCount = Result?.Cells?.Count ?? 0;
             _seedCount = Result?.Seeds?.Count ?? 0;
@@ -212,6 +241,15 @@ else
             if (p.Y > maxY) maxY = p.Y;
         }
         return new RectD(minX, minY, Math.Max(0, maxX - minX), Math.Max(0, maxY - minY));
+    }
+
+    private static RectD UnionBounds(RectD a, RectD b)
+    {
+        double left = Math.Min(a.Left, b.Left);
+        double top = Math.Min(a.Top, b.Top);
+        double right = Math.Max(a.Right, b.Right);
+        double bottom = Math.Max(a.Bottom, b.Bottom);
+        return new RectD(left, top, right - left, bottom - top);
     }
 
     private static double[] ToFlatArray(IReadOnlyList<Vector2> points)

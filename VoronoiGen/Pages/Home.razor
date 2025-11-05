@@ -100,10 +100,10 @@ else
     private bool UseHoles { get; set; } = true;
 
     // Clamp in setters to enforce UI limits regardless of the HTML attributes.
-    private double _outerOffset = 0; // inset-only
-    private double _innerOffset = 0; // non-negative
-    private double _cellGap = 0;     // non-negative
-    private int _smoothIterations = 0;
+    private double _outerOffset = 5; // inset-only
+    private double _innerOffset = 5; // non-negative
+    private double _cellGap = 5;     // non-negative
+    private int _smoothIterations = 2;
     private double _cellOffset = 0;  // can be positive or negative
 
     private double OuterOffset
