@@ -1,6 +1,6 @@
 ﻿User-agent: *
 Allow: /
-Sitemap: https://yoursite.com/sitemap.xml
+Sitemap: https://voronoigen.com/sitemap.xml
 
 # Disallow framework files
 Disallow: /_framework/
