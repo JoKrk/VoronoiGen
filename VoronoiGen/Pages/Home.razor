@@ -7,121 +7,151 @@
 
 <PageTitle>Voronoi DXF Tool</PageTitle>
 
-<h1>Voronoi DXF — Holes + Offsets</h1>
+<header>
+    <h1>Voronoi DXF — Holes + Offsets</h1>
+    <p class="text-muted">Generate Voronoi diagrams from DXF files with advanced control over cell distribution, smoothing, and offset parameters.</p>
+</header>
 
-<!-- Upload DXF -->
-<InputFile OnChange="OnFileSelected" accept=".dxf" />
+<!-- File Upload Section -->
+<section class="upload-section">
+    <InputFile OnChange="OnFileSelected" accept=".dxf" />
 
-<div class="controls" style="margin-top:1rem; display:flex; gap:1rem; align-items:center; flex-wrap:wrap;">
-    <label>
+    @if (_import?.Outer is null)
+    {
+        <p class="mt-3">📁 Upload a DXF file with a closed outline to begin.</p>
+    }
+    else
+    {
+        <p class="mt-3" style="color: var(--color-success); font-weight: 500;">
+            ✓ Boundary loaded — Area: <code>@_import!.Outer.Area():F0</code> units² | Holes: <code>@_import!.Holes.Count</code>
+        </p>
+    }
+</section>
+
+<!-- Parameter Controls -->
+<section class="controls">
+    <!-- Boundary Controls -->
+    <label title="Enable or disable hole detection in the imported geometry. When enabled, holes will be respected as void regions where no Voronoi cells will be generated.">
         Use Holes
         <input type="checkbox" @bind="UseHoles" disabled="@IsGenerating" />
     </label>
-    <label title="Inset margin. Positive pushes cells away from the boundary.">
+
+    <label title="Inset margin from the outer boundary. Positive values push Voronoi cells away from the boundary edge, creating a margin. Applied as a negative offset to shrink the working boundary.">
         Outer Offset
         <input type="number" step="0.5" min="0" @bind="OuterOffset" disabled="@IsGenerating" />
     </label>
-    <label title="Grow hole masks outward.">
+
+    <label title="Expands hole boundaries outward. Positive values grow hole masks, reducing the available area for Voronoi cell generation around obstacles.">
         Inner Offset
         <input type="number" step="0.5" min="0" @bind="InnerOffset" disabled="@IsGenerating" />
     </label>
-    <label>
+
+    <!-- Seed Generation Controls -->
+    <label title="Minimum spacing between seed points using Poisson disk sampling. Larger values create more uniform, evenly-spaced distributions. Measured in the same units as your DXF geometry.">
         Min Spacing (Poisson Radius)
         <input type="number" step="0.5" min="1" @bind="PoissonRadius" disabled="@IsGenerating" />
     </label>
-    <label>
+
+    <label title="Target number of seed points when using random generation (fallback if Poisson sampling fails). Higher values create more, smaller Voronoi cells.">
         Seed Count
         <input type="number" min="1" max="5000" @bind="SeedCount" disabled="@IsGenerating" />
     </label>
-    <label>
+
+    <label title="Random number generator seed for reproducible results. Using the same seed with identical parameters will produce the exact same pattern.">
         RNG Seed
         <input type="number" @bind="RngSeed" disabled="@IsGenerating" />
     </label>
-    <label>
+
+    <!-- Relaxation & Smoothing -->
+    <label title="Number of Lloyd relaxation iterations. Each iteration moves seed points toward their cell centroids, creating more uniform cell shapes and sizes. Values of 2-5 typically produce good results. 0 disables relaxation.">
         Lloyd Iterations
         <input type="number" min="0" max="10" @bind="LloydIterations" disabled="@IsGenerating" />
     </label>
-    <label title="Gap between adjacent cells (applied symmetrically).">
+
+    <label title="Spacing between adjacent Voronoi cells. This gap is applied symmetrically, shrinking each cell by half the gap value. Creates visible separation between cells. Set to 0 for no gaps.">
         Cell Gap
         <input type="number" step="0.5" min="0" @bind="CellGap" disabled="@IsGenerating" />
     </label>
-    <label title="Chaikin smoothing iterations per cell.">
+
+    <label title="Number of Chaikin corner-cutting smoothing iterations applied to each cell polygon. Higher values create smoother, more organic curves but reduce angular detail. 0 preserves sharp corners.">
         Smooth Iterations
         <input type="number" min="0" max="10" @bind="SmoothIterations" disabled="@IsGenerating" />
     </label>
-    <label title="Uniform grow/shrink of each cell after gap. Positive grows, negative shrinks.">
+
+    <label title="Uniform grow/shrink applied to each cell after gap calculation. Positive values expand cells outward, negative values shrink them inward. Applied after Cell Gap. Useful for fine-tuning final cell sizes.">
         Cell Offset
         <input type="number" step="0.5" @bind="CellOffset" disabled="@IsGenerating" />
     </label>
-    <button @onclick="Generate" disabled="@(_import is null || IsGenerating)">@(IsGenerating ? "Generating…" : "Generate")</button>
-    <button @onclick="CancelGeneration" disabled="@(!IsGenerating)">Cancel</button>
-    <button @onclick="ExportSvg" disabled="@(Result is null || IsGenerating)">Export SVG</button>
-    <button @onclick="ExportDxf" disabled="@(Result is null || IsGenerating)">Export DXF</button>
-</div>
 
+    <!-- Action Buttons -->
+    <button @onclick="Generate" disabled="@(_import is null || IsGenerating)">
+        @(IsGenerating ? "⏳ Generating…" : "▶️ Generate")
+    </button>
+
+
+    <button @onclick="ExportSvg" disabled="@(Result is null || IsGenerating)">
+        📄 Export SVG
+    </button>
+
+    <button @onclick="ExportDxf" disabled="@(Result is null || IsGenerating)">
+        📐 Export DXF
+    </button>
+</section>
+
+<!-- Generation Status -->
 @if (IsGenerating)
 {
-    <div class="gen-status" style="display:flex;align-items:center;gap:.5rem;margin:.5rem 0;">
-        <div class="spinner" aria-label="Generating" style="width:16px;height:16px;border:2px solid #ccc;border-top-color:#333;border-radius:50%;animation:spin 0.9s linear infinite;"></div>
-        <span>Generating…</span>
+    <div class="gen-status">
+        <div class="spinner" role="status" aria-label="Generating Voronoi diagram"></div>
+        <span>Generating Voronoi diagram… This may take a moment for complex geometries.</span>
     </div>
-    <style>
-        @@keyframes spin {
-            to {
-                transform: rotate(360deg);
-            }
-        }
-    </style>
 }
 
-@if (_import?.Outer is null)
+<!-- Canvas Visualization -->
+@if (_import?.Outer is not null)
 {
-    <p>Upload a DXF file with a closed outline to begin.</p>
-}
-else
-{
-    <p>Boundary loaded. Area: @_import!.Outer.Area():F0. Holes: @_import!.Holes.Count. Click Generate.</p>
-    <!-- Keep viewport anchored to original DXF geometry -->
-    <VoronoiCanvas Boundary="_import!.Outer"
-                   Holes="@(UseHoles ? _import!.Holes : null)"
-                   ShowHoles="UseHoles"
-                   Result="Result"
-                   CanvasWidth="1024"
-                   CanvasHeight="480" />
+    <section class="canvas-section">
+        <VoronoiCanvas Boundary="_import!.Outer"
+                       Holes="@(UseHoles ? _import!.Holes : null)"
+                       ShowHoles="UseHoles"
+                       Result="Result"
+                       CanvasWidth="1200"
+                       CanvasHeight="600" />
+    </section>
 }
 
 @code {
     private DxfImport? _import;
-    private Polygon? _effectiveBoundary; // optional preview (not used for canvas)
-    private List<Polygon>? _effectiveHoles; // optional preview (not used for canvas)
+    private Polygon? _effectiveBoundary;
+    private List<Polygon>? _effectiveHoles;
     private List<Vector2> _seeds = new();
 
     // UI params
     private bool UseHoles { get; set; } = true;
 
     // Clamp in setters to enforce UI limits regardless of the HTML attributes.
-    private double _outerOffset = 5; // inset-only
-    private double _innerOffset = 5; // non-negative
-    private double _cellGap = 5;     // non-negative
+    private double _outerOffset = 5;
+    private double _innerOffset = 5;
+    private double _cellGap = 5;
     private int _smoothIterations = 2;
-    private double _cellOffset = 0;  // can be positive or negative
+    private double _cellOffset = 0;
 
     private double OuterOffset
     {
         get => _outerOffset;
-        set => _outerOffset = Math.Max(0, value); // positive = inset margin
+        set => _outerOffset = Math.Max(0, value);
     }
 
     private double InnerOffset
     {
         get => _innerOffset;
-        set => _innerOffset = Math.Max(0, value); // never negative
+        set => _innerOffset = Math.Max(0, value);
     }
 
     private double CellGap
     {
         get => _cellGap;
-        set => _cellGap = Math.Max(0, value); // never negative
+        set => _cellGap = Math.Max(0, value);
     }
 
     private int SmoothIterations
@@ -133,7 +163,7 @@ else
     private double CellOffset
     {
         get => _cellOffset;
-        set => _cellOffset = value; // allow +/- values
+        set => _cellOffset = value;
     }
 
     private int SeedCount { get; set; } = 200;
@@ -183,27 +213,24 @@ else
         var token = _genCts.Token;
 
         StateHasChanged();
-        await Task.Yield(); // let spinner render
+        await Task.Yield();
 
         try
         {
             var boundary = _import.Outer;
             var rawHoles = UseHoles ? _import.Holes : new List<Polygon>();
 
-            // (Optional) compute effective geometry if you want, but don't feed it to the canvas
             _effectiveBoundary = _outerOffset == 0 ? boundary : GeometryUtils.OffsetPolygon(boundary, -(_outerOffset));
             _effectiveHoles = UseHoles
                 ? (_innerOffset == 0 ? rawHoles : rawHoles.Select(h => GeometryUtils.OffsetPolygon(h, _innerOffset)).ToList())
                 : null;
 
-            // Generate seeds against the original DXF geometry to keep visuals stable
             _seeds = SeedGenerator.GeneratePoisson(boundary, rawHoles, !UseHoles, PoissonRadius, RngSeed);
             if (_seeds.Count == 0 && SeedCount > 0)
             {
                 _seeds = SeedGenerator.GenerateRandom(boundary, rawHoles, !UseHoles, SeedCount, RngSeed);
             }
 
-            // Heavy compute on a background thread. VoronoiEngine supports cooperative cancellation.
             Result = await Task.Run(() =>
             {
                 return LloydIterations > 0

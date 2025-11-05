@@ -1,64 +1,447 @@
+﻿/* ========================================
+   Apple-Inspired Design System
+   Optimized for Desktop Browsers
+   ======================================== */
+
+:root {
+    /* Apple-inspired Color Palette */
+    --color-primary: #007AFF;
+    --color-primary-hover: #0051D5;
+    --color-success: #34C759;
+    --color-danger: #FF3B30;
+    --color-warning: #FF9500;
+    /* Neutral Grays */
+    --color-text-primary: #1d1d1f;
+    --color-text-secondary: #6e6e73;
+    --color-text-tertiary: #86868b;
+    --color-border: #d2d2d7;
+    --color-border-light: #e5e5ea;
+    --color-background: #fbfbfd;
+    --color-surface: #ffffff;
+    --color-surface-elevated: #ffffff;
+    /* Shadows */
+    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02);
+    --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.05), 0 2px 4px rgba(0, 0, 0, 0.03);
+    --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.08), 0 4px 6px rgba(0, 0, 0, 0.04);
+    /* Typography */
+    --font-system: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
+    --font-mono: "SF Mono", Monaco, "Cascadia Code", "Roboto Mono", Consolas, "Courier New", monospace;
+    /* Spacing Scale */
+    --space-xs: 4px;
+    --space-sm: 8px;
+    --space-md: 16px;
+    --space-lg: 24px;
+    --space-xl: 32px;
+    --space-2xl: 48px;
+    /* Border Radius */
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-lg: 14px;
+    --radius-xl: 20px;
+    /* Transitions */
+    --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-base: 200ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ========================================
+   Base Styles
+   ======================================== */
+
+body {
+    font-family: var(--font-system);
+    background: var(--color-background);
+    color: var(--color-text-primary);
+    line-height: 1.5;
+    margin: 0;
+    padding: var(--space-lg);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+/* ========================================
+   Typography
+   ======================================== */
+
+h1 {
+    font-size: 2.5rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: var(--color-text-primary);
+    margin: 0 0 var(--space-xl) 0;
+    line-height: 1.1;
+}
+
+p {
+    color: var(--color-text-secondary);
+    font-size: 1rem;
+    margin: var(--space-md) 0;
+}
+
+code {
+    color: var(--color-primary);
+    background: rgba(0, 122, 255, 0.06);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: var(--font-mono);
+    font-size: 0.9em;
+}
+
+/* ========================================
+   Controls Section
+   ======================================== */
+
+.controls {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border-light);
+    border-radius: var(--radius-lg);
+    padding: var(--space-lg);
+    margin: var(--space-xl) 0;
+    box-shadow: var(--shadow-sm);
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: var(--space-lg);
+    align-items: start;
+}
+
+    .controls label {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-sm);
+        font-size: 0.875rem;
+        font-weight: 500;
+        color: var(--color-text-primary);
+        cursor: pointer;
+        position: relative;
+    }
+
+        /* Parameter Descriptions */
+        .controls label::after {
+            content: attr(title);
+            display: block;
+            font-size: 0.75rem;
+            font-weight: 400;
+            color: var(--color-text-tertiary);
+            margin-top: var(--space-xs);
+            line-height: 1.4;
+        }
+
+        /* Remove default title tooltips since we're showing them inline */
+        .controls label[title]:hover::before {
+            content: none;
+        }
+
+    /* ========================================
+   Input Fields
+   ======================================== */
+
+    .controls input[type="number"],
+    .controls input[type="text"] {
+        width: 100%;
+        padding: var(--space-sm) var(--space-md);
+        font-size: 1rem;
+        font-family: var(--font-system);
+        color: var(--color-text-primary);
+        background: var(--color-surface);
+        border: 1.5px solid var(--color-border);
+        border-radius: var(--radius-sm);
+        transition: all var(--transition-base);
+        outline: none;
+    }
+
+        .controls input[type="number"]:hover:not(:disabled),
+        .controls input[type="text"]:hover:not(:disabled) {
+            border-color: var(--color-text-tertiary);
+        }
+
+        .controls input[type="number"]:focus,
+        .controls input[type="text"]:focus {
+            border-color: var(--color-primary);
+            box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.1);
+        }
+
+        .controls input[type="number"]:disabled,
+        .controls input[type="text"]:disabled {
+            background: var(--color-background);
+            color: var(--color-text-tertiary);
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+
+    /* Checkbox Styling */
+    .controls input[type="checkbox"] {
+        width: 20px;
+        height: 20px;
+        margin: 0;
+        cursor: pointer;
+        accent-color: var(--color-primary);
+    }
+
+    .controls label:has(input[type="checkbox"]) {
+        flex-direction: row;
+        align-items: center;
+        gap: var(--space-sm);
+    }
+
+/* ========================================
+   Buttons
+   ======================================== */
+
+button {
+    padding: var(--space-sm) var(--space-lg);
+    font-size: 0.9375rem;
+    font-weight: 500;
+    font-family: var(--font-system);
+    color: var(--color-surface);
+    background: var(--color-primary);
+    border: none;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: all var(--transition-base);
+    box-shadow: var(--shadow-sm);
+    white-space: nowrap;
+}
+
+    button:hover:not(:disabled) {
+        background: var(--color-primary-hover);
+        box-shadow: var(--shadow-md);
+        transform: translateY(-1px);
+    }
+
+    button:active:not(:disabled) {
+        transform: translateY(0);
+        box-shadow: var(--shadow-sm);
+    }
+
+    button:disabled {
+        background: var(--color-border);
+        color: var(--color-text-tertiary);
+        cursor: not-allowed;
+        box-shadow: none;
+        transform: none;
+    }
+
+    /* Button Variants */
+    button[onclick*="Cancel"] {
+        background: var(--color-danger);
+    }
+
+        button[onclick*="Cancel"]:hover:not(:disabled) {
+            background: #cc2e25;
+        }
+
+    button[onclick*="Export"] {
+        background: var(--color-success);
+    }
+
+        button[onclick*="Export"]:hover:not(:disabled) {
+            background: #2ba548;
+        }
+
+/* ========================================
+   File Upload
+   ======================================== */
+
+input[type="file"]::file-selector-button {
+    padding: var(--space-sm) var(--space-lg);
+    font-size: 0.9375rem;
+    font-weight: 500;
+    font-family: var(--font-system);
+    color: var(--color-primary);
+    background: rgba(0, 122, 255, 0.06);
+    border: 1.5px solid var(--color-primary);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: all var(--transition-base);
+    margin-right: var(--space-md);
+}
+
+    input[type="file"]::file-selector-button:hover {
+        background: rgba(0, 122, 255, 0.12);
+        border-color: var(--color-primary-hover);
+    }
+
+input[type="file"] {
+    font-size: 0.9375rem;
+    color: var(--color-text-secondary);
+    cursor: pointer;
+    padding: var(--space-md) 0;
+}
+
+/* ========================================
+   Canvas Container
+   ======================================== */
+
+canvas {
+    border: 1px solid var(--color-border-light) !important;
+    border-radius: var(--radius-lg) !important;
+    display: block !important;
+    box-shadow: var(--shadow-md) !important;
+    background: var(--color-surface) !important;
+    margin: var(--space-xl) auto !important;
+}
+
+/* ========================================
+   Status & Loading
+   ======================================== */
+
+.gen-status {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-md);
+    background: rgba(0, 122, 255, 0.06);
+    border: 1px solid rgba(0, 122, 255, 0.2);
+    border-radius: var(--radius-md);
+    color: var(--color-primary);
+    font-weight: 500;
+    margin: var(--space-lg) 0;
+}
+
+.spinner {
+    width: 18px;
+    height: 18px;
+    border: 2.5px solid rgba(0, 122, 255, 0.2);
+    border-top-color: var(--color-primary);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* ========================================
+   Debug Information
+   ======================================== */
+
+.debug {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    background: var(--color-background);
+    border: 1px solid var(--color-border-light);
+    border-radius: var(--radius-sm);
+    padding: var(--space-md);
+    margin-top: var(--space-lg);
+    color: var(--color-text-secondary);
+    line-height: 1.6;
+}
+
+    .debug > div {
+        padding: var(--space-xs) 0;
+        border-bottom: 1px solid var(--color-border-light);
+    }
+
+        .debug > div:last-child {
+            border-bottom: none;
+        }
+
+/* ========================================
+   Validation States
+   ======================================== */
+
 .valid.modified:not([type=checkbox]) {
-    outline: 1px solid #26b050;
+    border-color: var(--color-success) !important;
+    box-shadow: 0 0 0 3px rgba(52, 199, 89, 0.1) !important;
 }
 
 .invalid {
-    outline: 1px solid red;
+    border-color: var(--color-danger) !important;
+    box-shadow: 0 0 0 3px rgba(255, 59, 48, 0.1) !important;
 }
 
 .validation-message {
-    color: red;
+    color: var(--color-danger);
+    font-size: 0.75rem;
+    margin-top: var(--space-xs);
+    font-weight: 500;
 }
 
+/* ========================================
+   Blazor Error UI
+   ======================================== */
+
 #blazor-error-ui {
-    color-scheme: light only;
-    background: lightyellow;
+    background: var(--color-surface-elevated);
+    border-top: 2px solid var(--color-danger);
+    box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.1);
     bottom: 0;
-    box-shadow: 0 -1px 2px rgba(0, 0, 0, 0.2);
-    box-sizing: border-box;
     display: none;
     left: 0;
-    padding: 0.6rem 1.25rem 0.7rem 1.25rem;
+    padding: var(--space-md) var(--space-lg);
     position: fixed;
     width: 100%;
     z-index: 1000;
+    color: var(--color-danger);
+    font-weight: 500;
 }
 
     #blazor-error-ui .dismiss {
         cursor: pointer;
         position: absolute;
-        right: 0.75rem;
-        top: 0.5rem;
+        right: var(--space-lg);
+        top: 50%;
+        transform: translateY(-50%);
+        font-size: 1.25rem;
+        opacity: 0.7;
+        transition: opacity var(--transition-fast);
     }
+
+        #blazor-error-ui .dismiss:hover {
+            opacity: 1;
+        }
 
 .blazor-error-boundary {
-    background: url(data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTYiIGhlaWdodD0iNDkiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgeG1sbnM6eGxpbms9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkveGxpbmsiIG92ZXJmbG93PSJoaWRkZW4iPjxkZWZzPjxjbGlwUGF0aCBpZD0iY2xpcDAiPjxyZWN0IHg9IjIzNSIgeT0iNTEiIHdpZHRoPSI1NiIgaGVpZ2h0PSI0OSIvPjwvY2xpcFBhdGg+PC9kZWZzPjxnIGNsaXAtcGF0aD0idXJsKCNjbGlwMCkiIHRyYW5zZm9ybT0idHJhbnNsYXRlKC0yMzUgLTUxKSI+PHBhdGggZD0iTTI2My41MDYgNTFDMjY0LjcxNyA1MSAyNjUuODEzIDUxLjQ4MzcgMjY2LjYwNiA1Mi4yNjU4TDI2Ny4wNTIgNTIuNzk4NyAyNjcuNTM5IDUzLjYyODMgMjkwLjE4NSA5Mi4xODMxIDI5MC41NDUgOTIuNzk1IDI5MC42NTYgOTIuOTk2QzI5MC44NzcgOTMuNTEzIDI5MSA5NC4wODE1IDI5MSA5NC42NzgyIDI5MSA5Ny4wNjUxIDI4OS4wMzggOTkgMjg2LjYxNyA5OUwyNDAuMzgzIDk5QzIzNy45NjMgOTkgMjM2IDk3LjA2NTEgMjM2IDk0LjY3ODIgMjM2IDk0LjM3OTkgMjM2LjAzMSA5NC4wODg2IDIzNi4wODkgOTMuODA3MkwyMzYuMzM4IDkzLjAxNjIgMjM2Ljg1OCA5Mi4xMzE0IDI1OS40NzMgNTMuNjI5NCAyNTkuOTYxIDUyLjc5ODUgMjYwLjQwNyA1Mi4yNjU4QzI2MS4yIDUxLjQ4MzcgMjYyLjI5NiA1MSAyNjMuNTA2IDUxWk0yNjMuNTg2IDY2LjAxODNDMjYwLjczNyA2Ni4wMTgzIDI1OS4zMTMgNjcuMTI0NSAyNTkuMzEzIDY5LjMzNyAyNTkuMzEzIDY5LjYxMDIgMjU5LjMzMiA2OS44NjA4IDI1OS4zNzEgNzAuMDg4N0wyNjEuNzk1IDg0LjAxNjEgMjY1LjM4IDg0LjAxNjEgMjY3LjgyMSA2OS43NDc1QzI2Ny44NiA2OS43MzA5IDI2Ny44NzkgNjkuNTg3NyAyNjcuODc5IDY5LjMxNzkgMjY3Ljg3OSA2Ny4xMTgyIDI2Ni40NDggNjYuMDE4MyAyNjMuNTg2IDY2LjAxODNaTTI2My41NzYgODYuMDU0N0MyNjEuMDQ5IDg2LjA1NDcgMjU5Ljc4NiA4Ny4zMDA1IDI1OS43ODYgODkuNzkyMSAyNTkuNzg2IDkyLjI4MzcgMjYxLjA0OSA5My41Mjk1IDI2My41NzYgOTMuNTI5NSAyNjYuMTE2IDkzLjUyOTUgMjY3LjM4NyA5Mi4yODM3IDI2Ny4zODcgODkuNzkyMSAyNjcuMzg3IDg3LjMwMDUgMjY2LjExNiA4Ni4wNTQ3IDI2My41NzYgODYuMDU0N1oiIGZpbGw9IiNGRkU1MDAiIGZpbGwtcnVsZT0iZXZlbm9kZCIvPjwvZz48L3N2Zz4=) no-repeat 1rem/1.8rem, #b32121;
-    padding: 1rem 1rem 1rem 3.7rem;
+    background: linear-gradient(135deg, #FF3B30 0%, #cc2e25 100%);
+    padding: var(--space-lg) var(--space-lg) var(--space-lg) var(--space-2xl);
     color: white;
+    border-radius: var(--radius-md);
+    margin: var(--space-lg) 0;
+    box-shadow: var(--shadow-lg);
+    position: relative;
 }
 
-    .blazor-error-boundary::after {
-        content: "An error has occurred."
+    .blazor-error-boundary::before {
+        content: "⚠";
+        position: absolute;
+        left: var(--space-lg);
+        top: 50%;
+        transform: translateY(-50%);
+        font-size: 1.5rem;
     }
+
+    .blazor-error-boundary::after {
+        content: "An error has occurred.";
+        font-weight: 600;
+    }
+
+/* ========================================
+   Loading Progress
+   ======================================== */
 
 .loading-progress {
     position: relative;
     display: block;
     width: 8rem;
     height: 8rem;
-    margin: 20vh auto 1rem auto;
+    margin: 20vh auto var(--space-lg) auto;
 }
 
     .loading-progress circle {
         fill: none;
-        stroke: #e0e0e0;
-        stroke-width: 0.6rem;
+        stroke: var(--color-border);
+        stroke-width: 0.5rem;
         transform-origin: 50% 50%;
         transform: rotate(-90deg);
     }
 
         .loading-progress circle:last-child {
-            stroke: #1b6ec2;
+            stroke: var(--color-primary);
             stroke-dasharray: calc(3.141 * var(--blazor-load-percentage, 0%) * 0.8), 500%;
             transition: stroke-dasharray 0.05s ease-in-out;
         }
@@ -66,23 +449,134 @@
 .loading-progress-text {
     position: absolute;
     text-align: center;
-    font-weight: bold;
-    inset: calc(20vh + 3.25rem) 0 auto 0.2rem;
+    font-weight: 600;
+    color: var(--color-text-primary);
+    inset: calc(20vh + 3.5rem) 0 auto 0;
 }
 
     .loading-progress-text:after {
         content: var(--blazor-load-percentage-text, "Loading");
     }
 
-code {
-    color: #c02d76;
-}
+/* ========================================
+   Form Floating (Bootstrap compatibility)
+   ======================================== */
 
-.form-floating > .form-control-plaintext::placeholder, .form-floating > .form-control::placeholder {
-    color: var(--bs-secondary-color);
+.form-floating > .form-control-plaintext::placeholder,
+.form-floating > .form-control::placeholder {
+    color: var(--color-text-tertiary);
     text-align: end;
+    transition: all var(--transition-base);
 }
 
-.form-floating > .form-control-plaintext:focus::placeholder, .form-floating > .form-control:focus::placeholder {
+.form-floating > .form-control-plaintext:focus::placeholder,
+.form-floating > .form-control:focus::placeholder {
     text-align: start;
+}
+
+/* ========================================
+   Responsive Optimizations (Desktop-First)
+   ======================================== */
+
+@media (min-width: 1400px) {
+    body {
+        max-width: 1600px;
+        margin: 0 auto;
+        padding: var(--space-2xl);
+    }
+
+    .controls {
+        grid-template-columns: repeat(4, 1fr);
+    }
+}
+
+@media (min-width: 1200px) and (max-width: 1399px) {
+    .controls {
+        grid-template-columns: repeat(3, 1fr);
+    }
+}
+
+@media (max-width: 1199px) {
+    .controls {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 768px) {
+    body {
+        padding: var(--space-md);
+    }
+
+    h1 {
+        font-size: 2rem;
+    }
+
+    .controls {
+        grid-template-columns: 1fr;
+        gap: var(--space-md);
+    }
+}
+
+/* ========================================
+   Utility Classes
+   ======================================== */
+
+.hidden {
+    display: none !important;
+}
+
+.text-muted {
+    color: var(--color-text-secondary);
+}
+
+.text-small {
+    font-size: 0.875rem;
+}
+
+.mt-0 {
+    margin-top: 0 !important;
+}
+
+.mt-1 {
+    margin-top: var(--space-xs) !important;
+}
+
+.mt-2 {
+    margin-top: var(--space-sm) !important;
+}
+
+.mt-3 {
+    margin-top: var(--space-md) !important;
+}
+
+.mt-4 {
+    margin-top: var(--space-lg) !important;
+}
+
+.mt-5 {
+    margin-top: var(--space-xl) !important;
+}
+
+.mb-0 {
+    margin-bottom: 0 !important;
+}
+
+.mb-1 {
+    margin-bottom: var(--space-xs) !important;
+}
+
+.mb-2 {
+    margin-bottom: var(--space-sm) !important;
+}
+
+.mb-3 {
+    margin-bottom: var(--space-md) !important;
+}
+
+.mb-4 {
+    margin-bottom: var(--space-lg) !important;
+}
+
+.mb-5 {
+    margin-bottom: var(--space-xl) !important;
 }
