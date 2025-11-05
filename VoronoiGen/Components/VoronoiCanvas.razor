@@ -86,8 +86,12 @@ else
 
         try
         {
-            var boundary = Result?.Boundary ?? Boundary;
-            if (boundary is null || boundary.Points.Count < 3)
+            // Working boundary (offset) if Result present; otherwise original
+            var workBoundary = Result?.Boundary ?? Boundary;
+            // Original DXF boundary explicitly
+            var originalBoundary = Boundary;
+
+            if (workBoundary is null || workBoundary.Points.Count < 3)
             {
                 var prepOnly = await _module.InvokeAsync<PrepareResult>("prepareCanvas", _canvasRef, CanvasWidth, CanvasHeight);
                 _lastCanvasW = prepOnly.pixelWidth;
@@ -102,8 +106,8 @@ else
             _lastCanvasW = pixelW;
             _lastCanvasH = pixelH;
 
-            // Compute bounds locally (no dependency on model-provided bounds)
-            var bounds = ComputeBounds(boundary.Points);
+            // Compute bounds from the currently drawn working boundary
+            var bounds = ComputeBounds(workBoundary.Points);
             _lastBounds = bounds;
             if (bounds.Width <= 0 || bounds.Height <= 0)
             {
@@ -123,10 +127,17 @@ else
 
             _cellCount = Result?.Cells?.Count ?? 0;
             _seedCount = Result?.Seeds?.Count ?? 0;
-            _boundaryPts = boundary.Points.Count;
+            _boundaryPts = workBoundary.Points.Count;
             _holeCount = Holes?.Count ?? 0;
 
-            var boundaryFlat = ToFlatArray(boundary.Points);
+            var boundaryFlat = ToFlatArray(workBoundary.Points);
+
+            // Only send original boundary when we have a Result (so lines don't fully overlap when no offset)
+            double[]? originalBoundaryFlat = null;
+            if (Result is not null && originalBoundary is not null && originalBoundary.Points.Count >= 3)
+            {
+                originalBoundaryFlat = ToFlatArray(originalBoundary.Points);
+            }
 
             double[][] cellsFlat = Array.Empty<double[]>();
             if (Result?.Cells is { Count: > 0 } cells)
@@ -142,7 +153,6 @@ else
                 ? ToFlatArray(seeds)
                 : Array.Empty<double>();
 
-            // Flatten holes for rendering
             double[][] holesFlat = Array.Empty<double[]>();
             if (Holes is { Count: > 0 })
             {
@@ -171,7 +181,8 @@ else
                 offsetX,
                 offsetY,
                 scale,
-                boundary = boundaryFlat,
+                boundary = boundaryFlat,                 // working (offset) boundary
+                originalBoundary = originalBoundaryFlat, // original DXF boundary (optional)
                 cells = cellsFlat,
                 seeds = seedsFlat,
                 holes = holesFlat,

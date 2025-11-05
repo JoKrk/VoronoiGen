@@ -188,11 +188,13 @@ namespace VoronoiGen.Services
             double outerOffset,
             double innerOffset)
         {
-            var workOuter = outerOffset != 0 ? GeometryUtils.OffsetPolygon(boundary, outerOffset) : boundary;
+            // Positive outerOffset means "margin away from boundary" => inset (shrink) the outer polygon
+            var workOuter = outerOffset != 0 ? GeometryUtils.OffsetPolygon(boundary, -outerOffset) : boundary;
             List<Polygon>? workHoles = null;
 
             if (!ignoreHoles && holes is not null && holes.Count > 0)
             {
+                // Positive innerOffset grows holes outward, reducing free area — already correct
                 workHoles = innerOffset != 0
                     ? holes.Select(h => GeometryUtils.OffsetPolygon(h, innerOffset)).ToList()
                     : new List<Polygon>(holes);

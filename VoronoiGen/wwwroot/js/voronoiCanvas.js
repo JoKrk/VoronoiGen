@@ -25,7 +25,7 @@ export function drawVoronoi(canvas, data) {
         pixelWidth, pixelHeight,
         boundsLeft, boundsTop,
         offsetX, offsetY, scale,
-        boundary, cells, seeds,
+        boundary, originalBoundary, cells, seeds,
         holes, showHoles,
         showDebug, hudLines
     } = data;
@@ -56,8 +56,43 @@ export function drawVoronoi(canvas, data) {
         }
     }
 
-    // Boundary fill + stroke
-    if (Array.isArray(boundary) && boundary.length >= 6) {
+    const hasOriginal = Array.isArray(originalBoundary) && originalBoundary.length >= 6;
+    const hasBoundary = Array.isArray(boundary) && boundary.length >= 6;
+
+    // When original is present, draw it solid + filled, and draw offset boundary dashed.
+    // When original is absent (initial load), draw boundary solid + filled.
+    if (hasOriginal) {
+        // Original DXF boundary (solid + fill)
+        ctx.fillStyle = 'rgba(0,128,255,0.125)';
+        ctx.beginPath();
+        ctx.moveTo(originalBoundary[0], originalBoundary[1]);
+        for (let i = 2; i < originalBoundary.length; i += 2) ctx.lineTo(originalBoundary[i], originalBoundary[i + 1]);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 2 / scale;
+        ctx.beginPath();
+        ctx.moveTo(originalBoundary[0], originalBoundary[1]);
+        for (let i = 2; i < originalBoundary.length; i += 2) ctx.lineTo(originalBoundary[i], originalBoundary[i + 1]);
+        ctx.closePath();
+        ctx.stroke();
+
+        // Working (offset) boundary as dashed outline (no fill)
+        if (hasBoundary) {
+            ctx.save();
+            ctx.strokeStyle = '#000';
+            ctx.lineWidth = 2 / scale;
+            ctx.setLineDash([6 / scale, 4 / scale]);
+            ctx.beginPath();
+            ctx.moveTo(boundary[0], boundary[1]);
+            for (let i = 2; i < boundary.length; i += 2) ctx.lineTo(boundary[i], boundary[i + 1]);
+            ctx.closePath();
+            ctx.stroke();
+            ctx.restore();
+        }
+    } else if (hasBoundary) {
+        // Initial load: treat boundary as the original (solid + fill)
         ctx.fillStyle = 'rgba(0,128,255,0.125)';
         ctx.beginPath();
         ctx.moveTo(boundary[0], boundary[1]);

@@ -17,9 +17,9 @@
         Use Holes
         <input type="checkbox" @bind="UseHoles" disabled="@IsGenerating" />
     </label>
-    <label title="Inset-only. Positive values are not allowed.">
+    <label title="Inset margin. Positive pushes cells away from the boundary.">
         Outer Offset
-        <input type="number" step="0.5"  @bind="OuterOffset" disabled="@IsGenerating" />
+        <input type="number" step="0.5" min="0" @bind="OuterOffset" disabled="@IsGenerating" />
     </label>
     <label title="Grow hole masks outward.">
         Inner Offset
@@ -109,7 +109,7 @@ else
     private double OuterOffset
     {
         get => _outerOffset;
-        set => _outerOffset = Math.Min(0, value); // never outward grow
+        set => _outerOffset = Math.Max(0, value); // positive = inset margin
     }
 
     private double InnerOffset
@@ -191,7 +191,7 @@ else
             var rawHoles = UseHoles ? _import.Holes : new List<Polygon>();
 
             // (Optional) compute effective geometry if you want, but don't feed it to the canvas
-            _effectiveBoundary = _outerOffset == 0 ? boundary : GeometryUtils.OffsetPolygon(boundary, _outerOffset);
+            _effectiveBoundary = _outerOffset == 0 ? boundary : GeometryUtils.OffsetPolygon(boundary, -(_outerOffset));
             _effectiveHoles = UseHoles
                 ? (_innerOffset == 0 ? rawHoles : rawHoles.Select(h => GeometryUtils.OffsetPolygon(h, _innerOffset)).ToList())
                 : null;
