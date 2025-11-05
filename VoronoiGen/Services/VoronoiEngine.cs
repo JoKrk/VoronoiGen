@@ -24,19 +24,23 @@ namespace VoronoiGen.Services
             double innerOffset,
             double cellGap = 0,
             int smoothIterations = 0,
-            double cellOffset = 0,
+            double minCellArea = 0,
+            double maxAspectRatio = 0,
             CancellationToken token = default)
         {
             token.ThrowIfCancellationRequested();
 
             var (workOuter, workHoles) = BuildWorkingRegion(boundary, holes, ignoreHoles, outerOffset, innerOffset);
 
-            var rawCells = ComputeCells(workOuter, workHoles, ignoreHoles, seeds, token);
+            var filteredSeeds = FilterBoundarySeeds(seeds, workOuter, workHoles, minDistanceFromEdge: cellGap * 0.5);
 
-            var processed = PostProcessCells(rawCells, workOuter, workHoles, ignoreHoles, cellGap, cellOffset, smoothIterations, token);
+            var rawCells = ComputeCells(workOuter, workHoles, ignoreHoles, filteredSeeds, token);
+
+            var processed = PostProcessCells(rawCells, workOuter, workHoles, ignoreHoles, cellGap, smoothIterations, minCellArea, maxAspectRatio, token);
 
             token.ThrowIfCancellationRequested();
-            return new VoronoiResult(workOuter, processed, seeds);
+
+            return new VoronoiResult(workOuter, processed, filteredSeeds);
         }
 
         public static VoronoiResult ComputeWithLloyd(
@@ -49,7 +53,8 @@ namespace VoronoiGen.Services
             double innerOffset,
             double cellGap = 0,
             int smoothIterations = 0,
-            double cellOffset = 0,
+            double minCellArea = 0,
+            double maxAspectRatio = 0,
             CancellationToken token = default)
         {
             token.ThrowIfCancellationRequested();
@@ -80,7 +85,7 @@ namespace VoronoiGen.Services
             }
 
             var finalCells = ComputeCells(workOuter, workHoles, ignoreHoles, currentSeeds, token);
-            var processed = PostProcessCells(finalCells, workOuter, workHoles, ignoreHoles, cellGap, cellOffset, smoothIterations, token);
+            var processed = PostProcessCells(finalCells, workOuter, workHoles, ignoreHoles, cellGap, smoothIterations, minCellArea, maxAspectRatio, token);
 
             token.ThrowIfCancellationRequested();
             return new VoronoiResult(workOuter, processed, currentSeeds);
@@ -269,15 +274,15 @@ namespace VoronoiGen.Services
             List<Polygon>? workHoles,
             bool ignoreHoles,
             double cellGap,
-            double cellOffset,
             int smoothIterations,
+            double minCellArea,
+            double maxAspectRatio,
             CancellationToken token)
         {
             var regionPaths = BuildRegionPaths(workOuter, workHoles, ignoreHoles);
             var processed = new List<Polygon>(cells.Count);
 
-            double effectiveOffset = cellOffset;
-            if (cellGap > 0) effectiveOffset -= (cellGap * 0.5);
+            double effectiveOffset = cellGap > 0 ? -(cellGap * 0.5) : 0;
 
             foreach (var cell in cells)
             {
@@ -296,6 +301,23 @@ namespace VoronoiGen.Services
                 }
 
                 var clipped = ClipPolygonToRegion(poly, regionPaths, seed: cell.Centroid());
+
+                // Filter out cells below minimum area threshold
+                if (minCellArea > 0)
+                {
+                    double area = Math.Abs(clipped.SignedArea());
+                    if (area < minCellArea)
+                        continue;
+                }
+
+                // Filter out cells with aspect ratio exceeding maximum
+                if (maxAspectRatio > 0)
+                {
+                    double aspectRatio = CalculateAspectRatio(clipped);
+                    if (aspectRatio > maxAspectRatio)
+                        continue;
+                }
+
                 processed.Add(clipped);
             }
 
@@ -360,6 +382,76 @@ namespace VoronoiGen.Services
                 }
             }
             if (w < pts.Count) pts.RemoveRange(w, pts.Count - w);
+        }
+
+        private static List<Vector2> FilterBoundarySeeds(
+            List<Vector2> seeds,
+            Polygon boundary,
+            List<Polygon>? holes,
+            double minDistanceFromEdge)
+        {
+            if (minDistanceFromEdge <= 0) return seeds;
+
+            var filtered = new List<Vector2>(seeds.Count);
+
+            foreach (var seed in seeds)
+            {
+                bool tooClose = false;
+
+                // Check distance to outer boundary
+                if (DistanceToPolygon(seed, boundary.Points) < minDistanceFromEdge)
+                    continue;
+
+                // Check distance to holes
+                if (holes != null)
+                {
+                    foreach (var hole in holes)
+                    {
+                        if (DistanceToPolygon(seed, hole.Points) < minDistanceFromEdge)
+                        {
+                            tooClose = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (!tooClose)
+                    filtered.Add(seed);
+            }
+
+            return filtered;
+        }
+
+        private static double DistanceToPolygon(Vector2 point, IReadOnlyList<Vector2> poly)
+        {
+            double minDist = double.MaxValue;
+
+            for (int i = 0, j = poly.Count - 1; i < poly.Count; j = i++)
+            {
+                var dist = DistanceToSegment(point, poly[j], poly[i]);
+                minDist = Math.Min(minDist, dist);
+            }
+
+            return minDist;
+        }
+
+        private static double CalculateAspectRatio(Polygon cell)
+        {
+            var bounds = cell.GetBounds();
+            double width = bounds.Width;
+            double height = bounds.Height;
+
+            if (height < 1e-6) return double.MaxValue;
+            return Math.Max(width / height, height / width);
+        }
+
+        private static double DistanceToSegment(Vector2 p, Vector2 a, Vector2 b)
+        {
+            var ab = b - a;
+            var ap = p - a;
+            float t = Math.Clamp(Vector2.Dot(ap, ab) / Vector2.Dot(ab, ab), 0f, 1f);
+            var closest = a + t * ab;
+            return Vector2.Distance(p, closest);
         }
     }
 }

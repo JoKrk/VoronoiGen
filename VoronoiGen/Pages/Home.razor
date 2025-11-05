@@ -28,7 +28,7 @@
                 <div class="upload-status success">
                     <strong>✓ Boundary loaded</strong>
                     <div class="status-details">
-                        <span>Area: <code>@Math.Round(_import!.Outer.Area(),2)</code></span>
+                        <span>Area: <code>@Math.Round(_import!.Outer.Area(), 2)</code></span>
                         <span>Holes: <code>@_import!.Holes.Count</code></span>
                     </div>
                 </div>
@@ -98,9 +98,14 @@
                     <input type="number" min="0" max="10" @bind="SmoothIterations" disabled="@IsGenerating" />
                 </label>
 
-                <label title="Uniform grow/shrink applied to each cell after gap calculation. Positive values expand cells outward, negative values shrink them inward. Applied after Cell Gap. Useful for fine-tuning final cell sizes.">
-                    Cell Offset
-                    <input type="number" step="0.5" @bind="CellOffset" disabled="@IsGenerating" />
+                <label title="Minimum cell area threshold. Cells with area below this value will be filtered out, preventing weak structural points. Set to 0 to disable filtering.">
+                    Min Cell Area
+                    <input type="number" step="1" min="0" @bind="MinCellArea" disabled="@IsGenerating" />
+                </label>
+
+                <label title="Maximum aspect ratio (width/height or height/width). Cells exceeding this ratio will be filtered out to avoid elongated weak cells. Set to 0 to disable filtering. Recommended: 3-4 for structural applications.">
+                    Max Aspect Ratio
+                    <input type="number" step="0.5" min="0" @bind="MaxAspectRatio" disabled="@IsGenerating" />
                 </label>
             </div>
         </section>
@@ -171,11 +176,12 @@
     private bool UseHoles { get; set; } = true;
 
     // Clamp in setters to enforce UI limits regardless of the HTML attributes.
-    private double _outerOffset = 5;
+    private double _outerOffset = 8f;
     private double _innerOffset = 5;
-    private double _cellGap = 5;
+    private double _cellGap = 3;
     private int _smoothIterations = 2;
-    private double _cellOffset = 0;
+    private double _minCellArea = 0;
+    private double _maxAspectRatio = 0;
 
     private double OuterOffset
     {
@@ -201,16 +207,22 @@
         set => _smoothIterations = Math.Clamp(value, 0, 10);
     }
 
-    private double CellOffset
+    private double MinCellArea
     {
-        get => _cellOffset;
-        set => _cellOffset = value;
+        get => _minCellArea;
+        set => _minCellArea = Math.Max(0, value);
+    }
+
+    private double MaxAspectRatio
+    {
+        get => _maxAspectRatio;
+        set => _maxAspectRatio = Math.Max(0, value);
     }
 
     private int SeedCount { get; set; } = 200;
     private int RngSeed { get; set; } = 12345;
     private float PoissonRadius { get; set; } = 10f;
-    private int LloydIterations { get; set; } = 0;
+    private int LloydIterations { get; set; } = 3;
 
     public VoronoiResult? Result { get; set; }
 
@@ -275,8 +287,8 @@
             Result = await Task.Run(() =>
             {
                 return LloydIterations > 0
-                    ? VoronoiEngine.ComputeWithLloyd(boundary, rawHoles, !UseHoles, _seeds, LloydIterations, _outerOffset, _innerOffset, CellGap, SmoothIterations, CellOffset, token)
-                    : VoronoiEngine.Compute(boundary, rawHoles, !UseHoles, _seeds, _outerOffset, _innerOffset, CellGap, SmoothIterations, CellOffset, token);
+                    ? VoronoiEngine.ComputeWithLloyd(boundary, rawHoles, !UseHoles, _seeds, LloydIterations, _outerOffset, _innerOffset, CellGap, SmoothIterations, MinCellArea, MaxAspectRatio, token)
+                    : VoronoiEngine.Compute(boundary, rawHoles, !UseHoles, _seeds, _outerOffset, _innerOffset, CellGap, SmoothIterations, MinCellArea, MaxAspectRatio, token);
             }, token);
         }
         catch (OperationCanceledException)
@@ -305,7 +317,8 @@
     private void ExportSvg()
     {
         if (Result is null || IsGenerating) return;
-        var svg = SvgExporter.Export(Result, strokeWidth: 1f);
+        var holes = UseHoles ? _import?.Holes : null;
+        var svg = SvgExporter.Export(Result, holes, strokeWidth: 1f);
         var bytes = System.Text.Encoding.UTF8.GetBytes(svg);
         var base64 = Convert.ToBase64String(bytes);
         var timestamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
@@ -315,7 +328,8 @@
     private void ExportDxf()
     {
         if (Result is null || IsGenerating) return;
-        var bytes = DxfExporter.Export(Result);
+        var holes = UseHoles ? _import?.Holes : null;
+        var bytes = DxfExporter.Export(Result, holes);
         var base64 = Convert.ToBase64String(bytes);
         var timestamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
         JS.InvokeVoidAsync("voronoiGen.downloadBlob", base64, "application/dxf", $"voronoi-{timestamp}.dxf");

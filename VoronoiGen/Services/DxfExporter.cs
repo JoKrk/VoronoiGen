@@ -9,12 +9,11 @@ using IxMilia.Dxf.Entities;
 
 namespace VoronoiGen.Services
 {
-    // Exports VoronoiResult to DXF format.
-    // Extracts unique edges from Voronoi cells to avoid duplicate lines where cells meet.
+    // Exports VoronoiResult to DXF format with separate layers for cells, holes, and boundary.
     // Integration: Home page calls Export to let the user download the generated pattern as DXF.
     public static class DxfExporter
     {
-        public static byte[] Export(VoronoiResult result)
+        public static byte[] Export(VoronoiResult result, List<Polygon>? holes = null)
         {
             if (result is null)
                 throw new ArgumentNullException(nameof(result));
@@ -22,20 +21,37 @@ namespace VoronoiGen.Services
             var dxfFile = new DxfFile();
             dxfFile.Header.Version = DxfAcadVersion.R2013;
 
-            // Extract unique edges from all cells to avoid duplicates
-            var uniqueEdges = ExtractUniqueEdges(result.Cells);
+            // Define layers
+            dxfFile.Layers.Add(new DxfLayer("CELLS") { Color = DxfColor.FromIndex(7) }); // White
+            dxfFile.Layers.Add(new DxfLayer("BOUNDARY") { Color = DxfColor.FromIndex(1) }); // Red
+            dxfFile.Layers.Add(new DxfLayer("HOLES") { Color = DxfColor.FromIndex(5) }); // Blue
 
-            // Add each unique edge as a LINE entity
-            foreach (var edge in uniqueEdges)
+            // Layer 1: Add individual Voronoi cells as closed polylines
+            foreach (var cell in result.Cells)
             {
-                var line = new DxfLine(
-                    new DxfPoint(edge.Start.X, edge.Start.Y, 0),
-                    new DxfPoint(edge.End.X, edge.End.Y, 0)
-                );
-                dxfFile.Entities.Add(line);
+                if (cell.Points.Count < 3)
+                    continue;
+
+                var cellVertices = new List<DxfLwPolylineVertex>();
+                foreach (var point in cell.Points)
+                {
+                    cellVertices.Add(new DxfLwPolylineVertex
+                    {
+                        X = point.X,
+                        Y = point.Y
+                    });
+                }
+
+                var cellPolyline = new DxfLwPolyline(cellVertices)
+                {
+                    IsClosed = true,
+                    Layer = "CELLS"
+                };
+
+                dxfFile.Entities.Add(cellPolyline);
             }
 
-            // Optionally add the boundary as a separate layer
+            // Layer 2: Add the outer boundary
             if (result.Boundary?.Points.Count >= 3)
             {
                 var boundaryVertices = new List<DxfLwPolylineVertex>();
@@ -57,12 +73,41 @@ namespace VoronoiGen.Services
                 dxfFile.Entities.Add(boundaryPolyline);
             }
 
+            // Layer 3: Add internal holes
+            if (holes != null)
+            {
+                foreach (var hole in holes)
+                {
+                    if (hole.Points.Count < 3)
+                        continue;
+
+                    var holeVertices = new List<DxfLwPolylineVertex>();
+                    foreach (var point in hole.Points)
+                    {
+                        holeVertices.Add(new DxfLwPolylineVertex
+                        {
+                            X = point.X,
+                            Y = point.Y
+                        });
+                    }
+
+                    var holePolyline = new DxfLwPolyline(holeVertices)
+                    {
+                        IsClosed = true,
+                        Layer = "HOLES"
+                    };
+
+                    dxfFile.Entities.Add(holePolyline);
+                }
+            }
+
             // Write DXF to memory stream and return as bytes
             using var ms = new MemoryStream();
             dxfFile.Save(ms);
             return ms.ToArray();
         }
 
+        // Legacy method for backward compatibility - exports unique edges
         private static HashSet<Edge> ExtractUniqueEdges(List<Polygon> cells)
         {
             var edges = new HashSet<Edge>();
