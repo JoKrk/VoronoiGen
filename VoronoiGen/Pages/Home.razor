@@ -6,8 +6,10 @@
 @using System.Threading
 
 <PageTitle>Voronoi DXF Tool</PageTitle>
+<meta name="description" content="Generate Voronoi diagrams from DXF files for weight reduction, structural design, and generative art. Free online tool for combat robotics and engineering." />
 
 <div class="app-layout">
+
     <!-- Sidebar with Controls -->
     <aside class="sidebar">
         <header class="sidebar-header">
@@ -244,7 +246,8 @@
 
         try
         {
-            _import = DxfLoader.Load(bytes, chordTolerance: 0.5, simplifyTolerance: 0.2);
+            //set chord tolerance to zero to auto derive it
+            _import = DxfLoader.Load(bytes, chordTolerance: 0, simplifyTolerance: 0.2);
             _effectiveBoundary = _import.Outer;
             _effectiveHoles = UseHoles ? _import.Holes : null;
             Result = null;

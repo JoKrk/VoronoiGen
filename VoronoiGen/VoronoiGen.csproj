@@ -8,7 +8,18 @@
 		<InvariantGlobalization>true</InvariantGlobalization>
 		<UserSecretsId>d618a3e5-5f8b-4f11-9ebd-080592f24732</UserSecretsId>
 	</PropertyGroup>
+	
+	<!-- Debug: no compression, no AOT -->
+	<PropertyGroup Condition="'$(Configuration)'=='Debug'">
+		<BlazorEnableCompression>false</BlazorEnableCompression>
+		<RunAOTCompilation>false</RunAOTCompilation>
+	</PropertyGroup>
 
+	<!-- Release: enable both -->
+	<PropertyGroup Condition="'$(Configuration)'=='Release'">
+		<BlazorEnableCompression>true</BlazorEnableCompression>
+		<RunAOTCompilation>true</RunAOTCompilation>
+	</PropertyGroup>
 
 	<ItemGroup>
 		<PackageReference Include="Clipper2" Version="1.4.0" />

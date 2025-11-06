@@ -1,4 +1,4 @@
-using System;
+ï»¿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -16,7 +16,7 @@ namespace VoronoiGen.Services
     // - Handles SPLINE, ARC, and ELLIPSE entities with high fidelity
     // - Picks the largest-area loop as outer boundary
     // - Classifies all other loops whose centroid lies inside the outer as holes
-    // - Optionally simplifies with Douglas–Peucker
+    // - Optionally simplifies with Douglasâ€“Peucker
     public static class DxfLoader
     {
         public static DxfImport Load(byte[] bytes, double chordTolerance = 0.1, double simplifyTolerance = 0.0)
@@ -29,6 +29,12 @@ namespace VoronoiGen.Services
 
             // Unit scale: we keep model space units by default (1.0). Header units can be used if needed.
             double unitScale = GetUnitScale(dxf);
+
+            // Auto-derive a base tolerance from the DXF extents if requested (<= 0 triggers auto).
+            if (chordTolerance <= 0)
+            {
+                chordTolerance = ComputeAutoChordTolerance(dxf);
+            }
 
             var rings = new List<List<Vector2>>();
 
@@ -78,7 +84,6 @@ namespace VoronoiGen.Services
             }
 
             // ARC (open arcs won't form closed loops by themselves, but collect them anyway)
-            // Note: Open arcs typically need to be part of a boundary definition or combined with other entities
             foreach (var arc in dxf.Entities.OfType<DxfArc>())
             {
                 var pts = ApproximateArc(arc, chordTolerance);
@@ -182,17 +187,10 @@ namespace VoronoiGen.Services
             var r = (float)c.Radius;
             if (r <= 0) return new List<Vector2>();
 
-            // Choose number of segments from tolerance
-            int segments = 64;
-            if (chordTolerance > 0)
-            {
-                // For a circle segmented into N, delta = 2*acos(1 - tol/r)
-                double cosArg = 1.0 - chordTolerance / Math.Max(1e-9, r);
-                cosArg = Math.Clamp(cosArg, -1.0, 1.0);
-                double deltaMax = 2.0 * Math.Acos(cosArg);
-                if (deltaMax > 0)
-                    segments = Math.Max(8, (int)Math.Ceiling(2.0 * Math.PI / deltaMax));
-            }
+            // Choose number of segments from tolerance (use shared estimator for consistency)
+            int segments = EstimateSegmentsFromTolerance(r, 2.0 * Math.PI, chordTolerance);
+            segments = Math.Max(8, segments);            // ensure decent base smoothness
+            segments = Math.Min(2048, segments);         // avoid runaway tesselation
 
             var pts = new List<Vector2>(segments);
             for (int i = 0; i < segments; i++)
@@ -239,7 +237,7 @@ namespace VoronoiGen.Services
 
             // Estimate number of sample points based on chord tolerance
             int numSamples = Math.Max(controlPoints.Count * 8, (int)(controlPoints.Count / Math.Max(chordTolerance, 0.01)));
-            numSamples = Math.Min(numSamples, 1000); // Cap at 1000 points
+            numSamples = Math.Clamp(numSamples, 32, 1000); // Cap at [32..1000] points
 
             var result = new List<Vector2>(numSamples);
 
@@ -374,7 +372,8 @@ namespace VoronoiGen.Services
             // Estimate segments based on chord tolerance and the larger axis
             double maxRadius = Math.Max(semiMajor, semiMinor);
             int segments = EstimateSegmentsFromTolerance(maxRadius, angularSpan, chordTolerance);
-            segments = Math.Max(segments, 16); // Minimum segments for smooth ellipses
+            segments = Math.Max(16, segments);
+            segments = Math.Min(2048, segments);
 
             var pts = new List<Vector2>(segments + 1);
             for (int i = 0; i <= segments; i++)
@@ -411,7 +410,8 @@ namespace VoronoiGen.Services
                 sweep += 2.0 * Math.PI;
 
             int segments = EstimateSegmentsFromTolerance(radius, sweep, chordTolerance);
-            segments = Math.Max(segments, 2);
+            segments = Math.Max(2, segments);
+            segments = Math.Min(2048, segments);
 
             var pts = new List<Vector2>(segments + 1);
             for (int i = 0; i <= segments; i++)
@@ -460,6 +460,7 @@ namespace VoronoiGen.Services
             if (theta < 0 && sweep > 0) sweep -= 2 * Math.PI;
 
             int segments = Math.Max(1, EstimateSegmentsFromTolerance(r, Math.Abs(sweep), chordTolerance));
+            segments = Math.Min(2048, segments);
 
             var pts = new List<Vector2>(segments + 1) { p0 };
             for (int i = 1; i < segments; i++)
@@ -471,19 +472,33 @@ namespace VoronoiGen.Services
             return pts;
         }
 
+        // Intelligent segment estimator: uses global chordTolerance, but tightens per-entity to <= 0.5% of radius.
         private static int EstimateSegmentsFromTolerance(double radius, double angleAbs, double chordTolerance)
         {
-            if (chordTolerance <= 0)
+            // Fallback if no tolerance has been set
+            if (chordTolerance <= 0 || double.IsNaN(chordTolerance))
             {
-                // default to ~15-degree steps
-                return Math.Max(1, (int)Math.Ceiling(angleAbs / (Math.PI / 12.0)));
+                return Math.Max(1, (int)Math.Ceiling(angleAbs / (Math.PI / 12.0))); // ~15-degree default
             }
-            double cosArg = 1.0 - chordTolerance / Math.Max(1e-9, radius);
+
+            // Make small-radius entities smooth by bounding sagitta to a fraction of radius
+            double relativeSagitta = radius > 0 ? radius * 0.005 : chordTolerance; // 0.5% of radius
+            double effectiveTol = Math.Min(chordTolerance, relativeSagitta);
+
+            // Convert sagitta to max angle per segment
+            double cosArg = 1.0 - effectiveTol / Math.Max(1e-9, radius);
             cosArg = Math.Clamp(cosArg, -1.0, 1.0);
             double deltaMax = 2.0 * Math.Acos(cosArg);
-            if (deltaMax <= 0 || double.IsNaN(deltaMax))
-                return Math.Max(1, (int)Math.Ceiling(angleAbs / (Math.PI / 12.0)));
-            return Math.Max(1, (int)Math.Ceiling(angleAbs / deltaMax));
+
+            // Guard for degenerate cases
+            if (double.IsNaN(deltaMax) || deltaMax <= 0)
+            {
+                deltaMax = Math.PI / 12.0; // ~15 degrees
+            }
+
+            int segments = Math.Max(1, (int)Math.Ceiling(angleAbs / deltaMax));
+            segments = Math.Clamp(segments, 1, 4096);
+            return segments;
         }
 
         private static double NormalizeAngleSigned(double a)
@@ -491,6 +506,22 @@ namespace VoronoiGen.Services
             while (a <= -Math.PI) a += 2 * Math.PI;
             while (a > Math.PI) a -= 2 * Math.PI;
             return a;
+        }
+
+        private static double NormalizeAnglePositive(double a)
+        {
+            while (a < 0) a += 2 * Math.PI;
+            while (a >= 2 * Math.PI) a -= 2 * Math.PI;
+            return a;
+        }
+
+        private static bool AngleWithinSweep(double start, double end, double angle)
+        {
+            // assumes end >= start in [0,2Ï€)
+            if (end < start) end += 2 * Math.PI;
+            double ang = NormalizeAnglePositive(angle);
+            if (ang < start) ang += 2 * Math.PI;
+            return ang >= start - 1e-12 && ang <= end + 1e-12;
         }
 
         private static List<Vector2> NormalizeClosed(List<Vector2> pts)
@@ -504,7 +535,7 @@ namespace VoronoiGen.Services
             return pts;
         }
 
-        // Douglas–Peucker for closed polygons (returns no duplicate end point)
+        // Douglasâ€“Peucker for closed polygons (returns no duplicate end point)
         private static List<Vector2> DouglasPeuckerClosed(IReadOnlyList<Vector2> pts, float epsilon)
         {
             if (pts.Count < 3 || epsilon <= 0) return new List<Vector2>(pts);
@@ -518,7 +549,7 @@ namespace VoronoiGen.Services
             return simplified;
         }
 
-        // Standard Douglas–Peucker for open polylines
+        // Standard Douglasâ€“Peucker for open polylines
         private static List<Vector2> DouglasPeuckerOpen(IReadOnlyList<Vector2> pts, float epsilon)
         {
             if (pts.Count < 3) return new List<Vector2>(pts);
@@ -564,6 +595,147 @@ namespace VoronoiGen.Services
             float t = c1 / c2;
             var proj = a + t * vx;
             return Vector2.Distance(p, proj);
+        }
+
+        // --- Auto chord tolerance based on DXF extents ---
+
+        private static double ComputeAutoChordTolerance(DxfFile dxf)
+        {
+            var (min, max) = ComputeDxfExtents(dxf);
+
+            double dx = max.X - min.X;
+            double dy = max.Y - min.Y;
+            double diag = Math.Sqrt(dx * dx + dy * dy);
+
+            if (double.IsNaN(diag) || diag <= 0)
+                return 0.1; // safe fallback in model units
+
+            // Base tolerance: ~0.1% of the drawing diagonal, clamped to a reasonable band
+            double tol = diag * 0.001;              // 0.1%
+            double tolMin = diag * 0.00001;         // 0.001%
+            double tolMax = diag * 0.01;            // 1%
+
+            tol = Math.Clamp(tol, tolMin, tolMax);
+            return tol;
+        }
+
+        private static (Vector2 min, Vector2 max) ComputeDxfExtents(DxfFile dxf)
+        {
+            var min = new Vector2(float.PositiveInfinity, float.PositiveInfinity);
+            var max = new Vector2(float.NegativeInfinity, float.NegativeInfinity);
+
+            void Include(Vector2 p)
+            {
+                if (float.IsFinite(p.X) && float.IsFinite(p.Y))
+                {
+                    min = Vector2.Min(min, p);
+                    max = Vector2.Max(max, p);
+                }
+            }
+
+            // LWPOLYLINE vertices
+            foreach (var lw in dxf.Entities.OfType<DxfLwPolyline>())
+            {
+                foreach (var v in lw.Vertices)
+                    Include(new Vector2((float)v.X, (float)v.Y));
+            }
+
+            // POLYLINE vertices
+            foreach (var pl in dxf.Entities.OfType<DxfPolyline>())
+            {
+                foreach (var v in pl.Vertices)
+                    Include(new Vector2((float)v.Location.X, (float)v.Location.Y));
+            }
+
+            // CIRCLE extents
+            foreach (var c in dxf.Entities.OfType<DxfCircle>())
+            {
+                var center = new Vector2((float)c.Center.X, (float)c.Center.Y);
+                float r = (float)c.Radius;
+                Include(center + new Vector2(+r, 0));
+                Include(center + new Vector2(-r, 0));
+                Include(center + new Vector2(0, +r));
+                Include(center + new Vector2(0, -r));
+            }
+
+            // ARC extents (start, end, and cardinal angles within sweep)
+            foreach (var a in dxf.Entities.OfType<DxfArc>())
+            {
+                var center = new Vector2((float)a.Center.X, (float)a.Center.Y);
+                double r = a.Radius;
+                double s = a.StartAngle * Math.PI / 180.0;
+                double e = a.EndAngle * Math.PI / 180.0;
+
+                double sweep = e - s;
+                if (sweep < 0) sweep += 2 * Math.PI;
+
+                // start & end
+                Include(new Vector2((float)(center.X + r * Math.Cos(s)), (float)(center.Y + r * Math.Sin(s))));
+                Include(new Vector2((float)(center.X + r * Math.Cos(e)), (float)(center.Y + r * Math.Sin(e))));
+
+                // cardinals
+                var card = new[] { 0.0, Math.PI * 0.5, Math.PI, Math.PI * 1.5 };
+                foreach (var ang in card)
+                {
+                    double sN = NormalizeAnglePositive(s);
+                    double eN = NormalizeAnglePositive(e);
+                    if (AngleWithinSweep(sN, eN, ang))
+                    {
+                        Include(new Vector2((float)(center.X + r * Math.Cos(ang)), (float)(center.Y + r * Math.Sin(ang))));
+                    }
+                }
+            }
+
+            // ELLIPSE: sample a reasonable number of points for extents (fast and robust)
+            foreach (var el in dxf.Entities.OfType<DxfEllipse>())
+            {
+                var center = new Vector2((float)el.Center.X, (float)el.Center.Y);
+                var majorAxis = new Vector2((float)el.MajorAxis.X, (float)el.MajorAxis.Y);
+                double a = majorAxis.Length();
+                double b = a * el.MinorAxisRatio;
+                double phi = Math.Atan2(majorAxis.Y, majorAxis.X);
+
+                double start = el.StartParameter;
+                double end = el.EndParameter;
+                double span = end - start;
+                if (span < 0) span += 2 * Math.PI;
+
+                int steps = 72;
+                for (int i = 0; i <= steps; i++)
+                {
+                    double t = start + span * (i / (double)steps);
+                    double x = a * Math.Cos(t);
+                    double y = b * Math.Sin(t);
+                    double xr = x * Math.Cos(phi) - y * Math.Sin(phi);
+                    double yr = x * Math.Sin(phi) + y * Math.Cos(phi);
+                    Include(new Vector2(center.X + (float)xr, center.Y + (float)yr));
+                }
+            }
+
+            // SPLINE: use provided fit points or control points for coarse extents
+            foreach (var sp in dxf.Entities.OfType<DxfSpline>())
+            {
+                if (sp.FitPoints.Count > 0)
+                {
+                    foreach (var p in sp.FitPoints)
+                        Include(new Vector2((float)p.X, (float)p.Y));
+                }
+                else
+                {
+                    foreach (var cp in sp.ControlPoints)
+                        Include(new Vector2((float)cp.Point.X, (float)cp.Point.Y));
+                }
+            }
+
+            if (!float.IsFinite(min.X) || !float.IsFinite(min.Y) ||
+                !float.IsFinite(max.X) || !float.IsFinite(max.Y))
+            {
+                // Fallback to a tiny box if nothing was found
+                min = new Vector2(0, 0);
+                max = new Vector2(1, 1);
+            }
+
+            return (min, max);
         }
     }
 }

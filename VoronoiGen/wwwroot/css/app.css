@@ -64,6 +64,16 @@ body {
     -moz-osx-font-smoothing: grayscale;
 }
 
+@media (min-width: 769px) {
+    body:has(.app-layout) {
+        overflow: hidden; /* only app pages become non-scrolling shells */
+    }
+
+    .app-layout {
+        height: 100dvh; /* already present below; keeping for clarity */
+    }
+}
+
 * {
     box-sizing: border-box;
 }
@@ -163,6 +173,144 @@ body {
 /* ========================================
    Controls Section
    ======================================== */
+/* ========================================
+   Top Navigation (macOS Style)
+   ======================================== */
+
+.top-nav {
+    position: fixed;
+    top: 12px;
+    right: 12px;
+    z-index: 9999;
+}
+
+.nav-toggle {
+    background: rgba(255, 255, 255, 0.72);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    border: 0.5px solid rgba(0, 0, 0, 0.04);
+    border-radius: var(--radius-md);
+    width: 36px;
+    height: 36px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+    transition: all var(--transition-base);
+}
+
+    .nav-toggle:hover {
+        background: rgba(255, 255, 255, 0.85);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08), 0 2px 6px rgba(0, 0, 0, 0.04);
+        transform: scale(1.02);
+    }
+
+    .nav-toggle:active {
+        transform: scale(0.98);
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+    }
+
+.hamburger {
+    display: block;
+    width: 18px;
+    height: 2px;
+    background: var(--color-text-primary);
+    position: relative;
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    border-radius: 1px;
+}
+
+    .hamburger::before,
+    .hamburger::after {
+        content: '';
+        position: absolute;
+        width: 18px;
+        height: 2px;
+        background: var(--color-text-primary);
+        left: 0;
+        transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        border-radius: 1px;
+    }
+
+    .hamburger::before {
+        top: -5px;
+    }
+
+    .hamburger::after {
+        top: 5px;
+    }
+
+.top-nav.expanded .hamburger {
+    background: transparent;
+}
+
+    .top-nav.expanded .hamburger::before {
+        transform: rotate(45deg);
+        top: 0;
+    }
+
+    .top-nav.expanded .hamburger::after {
+        transform: rotate(-45deg);
+        top: 0;
+    }
+
+.nav-links {
+    position: absolute;
+    top: 44px;
+    right: 0;
+    background: rgba(255, 255, 255, 0.78);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    border: 0.5px solid rgba(0, 0, 0, 0.04);
+    border-radius: var(--radius-md);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12), 0 4px 12px rgba(0, 0, 0, 0.08);
+    min-width: 180px;
+    overflow: hidden;
+    animation: menuFadeIn 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes menuFadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(-8px) scale(0.96);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+.nav-links a {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: 10px 16px;
+    color: var(--color-text-primary);
+    text-decoration: none;
+    font-size: 0.9375rem;
+    font-weight: 400;
+    transition: background var(--transition-fast);
+    border-bottom: 0.5px solid rgba(0, 0, 0, 0.04);
+}
+
+    .nav-links a:last-child {
+        border-bottom: none;
+    }
+
+    .nav-links a:hover {
+        background: rgba(0, 122, 255, 0.08);
+    }
+
+    .nav-links a:active {
+        background: rgba(0, 122, 255, 0.12);
+    }
+
+    /* Emoji spacing for nav items */
+    .nav-links a::first-letter {
+        font-size: 1.1em;
+    }
 
 .controls {
     flex: 1;
@@ -805,3 +953,5 @@ code {
         padding: var(--space-md);
     }
 }
+
+

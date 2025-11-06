@@ -13,5 +13,6 @@ await builder.Build().RunAsync();
 
 //TODO
 //google adsense setup
-//improve mobile layout
 //look at smoothing voronoi edges algo
+//look at aspect ratio bias for voronoi
+//add more seo
