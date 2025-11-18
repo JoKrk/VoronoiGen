@@ -51,6 +51,7 @@
     <base href="/" />
     <link rel="canonical" href="https://voronoigen.com/" />
     <link rel="stylesheet" href="css/app.css" />
+    <link rel="stylesheet" href="css/nav.css" />
     <link rel="icon" type="image/x-icon" href="favicon.ico" />
     <link rel="apple-touch-icon" href="icon-192.png" />
 
@@ -118,6 +119,19 @@
                     <li>📐 CAD design and engineering</li>
                 </ul>
             </section>
+
+            <section style="margin-top:40px; padding-top:40px; border-top:2px solid #eee;">
+                <h2 style="font-size:1.8rem; margin-bottom:16px; color:#333;">Why Use This Tool?</h2>
+                <p style="margin-bottom:16px;">
+                    Unlike desktop CAD plugins or expensive software, our Voronoi generator runs entirely in your browser.
+                    No installation, no subscription, and your files never leave your computer. Built with WebAssembly for
+                    desktop-class performance on any device.
+                </p>
+                <p>
+                    Whether you're designing combat robot armor, architectural screens, or generative art, our tool
+                    provides professional-grade Voronoi diagrams with precise control over every parameter.
+                </p>
+            </section>
         </div>
     </div>
 
@@ -141,9 +155,9 @@
         }
 
         function loadAds() {
-            // Load Google AdSense script only after consent
+            if (window.__DEBUG__) return; // skip loading AdSense in debug
             const script = document.createElement('script');
-            src = 'https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-7586369298871197'
+            script.src = 'https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-7586369298871197';
             script.crossOrigin = 'anonymous';
             script.async = true;
             document.head.appendChild(script);
@@ -172,7 +186,6 @@
 
     <!-- Blazor WASM -->
     <script src="_framework/blazor.webassembly.js"></script>
-    <script src="_content/SkiaSharp.Views.Blazor/SKCanvasView.min.js"></script>
     <script src="js/utils.js"></script>
 
     <style>

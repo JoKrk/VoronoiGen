@@ -1,29 +1,33 @@
 ﻿@inject NavigationManager Navigation
 
-<nav class="top-nav @(isExpanded ? "expanded" : "")">
-    <button class="nav-toggle" @onclick="ToggleNav" aria-label="Toggle navigation">
+<nav class="top-nav" role="navigation" aria-label="Main">
+
+    <button class="nav-toggle" @onclick="ToggleNav" aria-label="Toggle navigation" aria-expanded="@isExpanded">
         <span class="hamburger"></span>
     </button>
 
-    @if (isExpanded)
-    {
-        <div class="nav-links">
-            <a href="/" @onclick="CloseNav">🛠️ Tool</a>
-            <a href="@BuildAbsolute("story.html")"
-               @onclick='() => NavigateToStatic("story.html")'
-               @onclick:preventDefault>📖 Story</a>
-            <a href="@BuildAbsolute("privacy.html")"
-               @onclick='() => NavigateToStatic("privacy.html")'
-               @onclick:preventDefault>🔒 Privacy</a>
-        </div>
-    }
+    <div class="nav-links @(isExpanded ? "open" : "")">
+        <a href="/" @onclick="NavigateToTool" @onclick:preventDefault>Tool</a>
+        <a href="@BuildAbsolute("story.html")"
+           @onclick='() => NavigateToStatic("story.html")'
+           @onclick:preventDefault>Story</a>
+        <a href="@BuildAbsolute("privacy.html")"
+           @onclick='() => NavigateToStatic("privacy.html")'
+           @onclick:preventDefault>Privacy</a>
+    </div>
 </nav>
 
 @code {
-    private bool isExpanded = false;
+    private bool isExpanded;
 
     private void ToggleNav() => isExpanded = !isExpanded;
     private void CloseNav() => isExpanded = false;
+
+    private void NavigateToTool()
+    {
+        CloseNav();
+        Navigation.NavigateTo("/");
+    }
 
     private string BuildAbsolute(string relative) =>
         new Uri(new Uri(Navigation.BaseUri), relative).ToString();

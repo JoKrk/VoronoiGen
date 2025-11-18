@@ -1,11 +1,4 @@
 ﻿User-agent: *
 Allow: /
+
 Sitemap: https://voronoigen.com/sitemap.xml
-
-# Disallow framework files
-Disallow: /_framework/
-Disallow: /_content/
-
-# Allow important resources
-Allow: /css/
-Allow: /images/

@@ -1,0 +1,104 @@
+﻿/* Remove default page margin so the header sits flush at the top */
+body {
+    margin: 0;
+}
+
+/* Scoped nav layout (renamed .container -> .nav-container to avoid global max-width) */
+.nav-container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 16px;
+}
+
+.site-header {
+    border-bottom: 0;
+    background: transparent;
+}
+
+.site-main {
+    padding: 16px 0;
+}
+
+/* Override app.css: bring the fixed nav closer to the top */
+.top-nav {
+    top: 4px; /* set 0 for completely flush, or tweak as desired */
+    /* optional: make the bar a bit tighter */
+    min-height: 48px; /* was 56px */
+}
+
+.brand {
+    text-decoration: none;
+    color: #222;
+    font-weight: 800;
+    letter-spacing: .2px;
+    font-size: 1.05rem;
+}
+
+.nav-links {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+    .nav-links a {
+        color: #2a5bd7;
+        text-decoration: none;
+        font-weight: 600;
+    }
+
+        .nav-links a:hover {
+            text-decoration: underline;
+        }
+
+/* Mobile collapse */
+.nav-toggle {
+    display: none;
+    background: none;
+    border: none;
+    width: 40px;
+    height: 40px;
+    padding: 0;
+}
+
+.hamburger,
+.hamburger::before,
+.hamburger::after {
+    content: "";
+    display: block;
+    height: 2px;
+    background: #333;
+    border-radius: 2px;
+    transition: .2s;
+}
+
+.hamburger {
+    width: 22px;
+    margin: 0 auto;
+}
+
+    .hamburger::before {
+        width: 22px;
+        transform: translateY(-6px);
+    }
+
+    .hamburger::after {
+        width: 22px;
+        transform: translateY(6px);
+    }
+
+@media (max-width: 640px) {
+    .nav-toggle {
+        display: inline-block;
+    }
+
+    .nav-links {
+        display: none;
+        flex-direction: column;
+        align-items: flex-start;
+        padding: 8px 0;
+    }
+
+        .nav-links.open {
+            display: flex;
+        }
+}

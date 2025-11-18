@@ -6,21 +6,17 @@
 @using System.Threading
 
 <PageTitle>Voronoi DXF Tool</PageTitle>
-<meta name="description" content="Generate Voronoi diagrams from DXF files for weight reduction, structural design, and generative art. Free online tool for combat robotics and engineering." />
+<meta name="description" content="Generate Voronoi diagrams from DXF files for weight reduction, structural design, and generative art." />
 
 <div class="app-layout">
-
-    <!-- Sidebar with Controls -->
     <aside class="sidebar">
         <header class="sidebar-header">
             <h1>Voronoi DXF</h1>
             <p class="text-muted text-small">Generate Voronoi diagrams from DXF files</p>
         </header>
 
-        <!-- File Upload Section -->
         <section class="upload-section">
             <InputFile id="fileInput" OnChange="OnFileSelected" accept=".dxf" />
-
             @if (_import?.Outer is null)
             {
                 <p class="upload-status">📁 Upload a DXF file to begin</p>
@@ -37,116 +33,130 @@
             }
         </section>
 
-        <!-- Parameter Controls -->
         <section class="controls">
             <h3 class="section-title">Parameters</h3>
 
-            <!-- Boundary Controls -->
             <div class="control-group">
                 <h4 class="group-title">Boundary</h4>
-
-                <label title="Enable or disable hole detection in the imported geometry. When enabled, holes will be respected as void regions where no Voronoi cells will be generated.">
+                <label title="Enable / disable hole usage.">
                     Use Holes
                     <input type="checkbox" @bind="UseHoles" disabled="@IsGenerating" />
                 </label>
-
-                <label title="Inset margin from the outer boundary. Positive values push Voronoi cells away from the boundary edge, creating a margin. Applied as a negative offset to shrink the working boundary.">
+                <label title="Inset margin from outer boundary (shrinks free area).">
                     Outer Offset
                     <input type="number" step="0.5" min="0" @bind="OuterOffset" disabled="@IsGenerating" />
                 </label>
-
-                <label title="Expands hole boundaries outward. Positive values grow hole masks, reducing the available area for Voronoi cell generation around obstacles.">
+                <label title="Grow hole outlines outward (reduces free area).">
                     Inner Offset
                     <input type="number" step="0.5" min="0" @bind="InnerOffset" disabled="@IsGenerating" />
                 </label>
             </div>
 
-            <!-- Seed Generation Controls -->
             <div class="control-group">
                 <h4 class="group-title">Seed Generation</h4>
-
-                <label title="Minimum spacing between seed points using Poisson disk sampling. Larger values create more uniform, evenly-spaced distributions. Measured in the same units as your DXF geometry.">
+                <label title="Poisson disk radius (larger = fewer seeds).">
                     Min Spacing (Poisson)
                     <input type="number" step="0.5" min="1" @bind="PoissonRadius" disabled="@IsGenerating" />
                 </label>
-
-                <label title="Target number of seed points when using random generation (fallback if Poisson sampling fails). Higher values create more, smaller Voronoi cells.">
+                <label title="Fallback random seed count if Poisson fails.">
                     Seed Count
                     <input type="number" min="1" max="5000" @bind="SeedCount" disabled="@IsGenerating" />
                 </label>
-
-                <label title="Random number generator seed for reproducible results. Using the same seed with identical parameters will produce the exact same pattern.">
+                <label title="Deterministic RNG seed.">
                     RNG Seed
                     <input type="number" @bind="RngSeed" disabled="@IsGenerating" />
                 </label>
-
-                <label title="Number of Lloyd relaxation iterations. Each iteration moves seed points toward their cell centroids, creating more uniform cell shapes and sizes. Values of 2-5 typically produce good results. 0 disables relaxation.">
+                <label title="Lloyd relaxation iterations (0 = none).">
                     Lloyd Iterations
                     <input type="number" min="0" max="10" @bind="LloydIterations" disabled="@IsGenerating" />
                 </label>
             </div>
 
-            <!-- Cell Processing Controls -->
             <div class="control-group">
                 <h4 class="group-title">Cell Processing</h4>
-
-                <label title="Spacing between adjacent Voronoi cells. This gap is applied symmetrically, shrinking each cell by half the gap value. Creates visible separation between cells. Set to 0 for no gaps.">
+                <label title="Gap between cells (shrinks each cell).">
                     Cell Gap
                     <input type="number" step="0.5" min="0" @bind="CellGap" disabled="@IsGenerating" />
                 </label>
-
-                <label title="Number of Chaikin corner-cutting smoothing iterations applied to each cell polygon. Higher values create smoother, more organic curves but reduce angular detail. 0 preserves sharp corners.">
+                <label title="Smoothing iterations (affects automatic radius estimation when Corner Radius = 0).">
                     Smooth Iterations
                     <input type="number" min="0" max="10" @bind="SmoothIterations" disabled="@IsGenerating" />
                 </label>
-
-                <label title="Minimum cell area threshold. Cells with area below this value will be filtered out, preventing weak structural points. Set to 0 to disable filtering.">
+                <label title="Filter out cells below this area (0 disables).">
                     Min Cell Area
                     <input type="number" step="1" min="0" @bind="MinCellArea" disabled="@IsGenerating" />
                 </label>
-
-                <label title="Maximum aspect ratio (width/height or height/width). Cells exceeding this ratio will be filtered out to avoid elongated weak cells. Set to 0 to disable filtering. Recommended: 3-4 for structural applications.">
+                <label title="Max width/height (or height/width) ratio (0 disables).">
                     Max Aspect Ratio
                     <input type="number" step="0.5" min="0" @bind="MaxAspectRatio" disabled="@IsGenerating" />
                 </label>
+
+                <div class="sub-group">
+                    <h5 class="sub-title">Rounding / Smoothing</h5>
+                    <label title="Explicit corner fillet radius in drawing units (0 = auto based on Smooth Iterations & gap).">
+                        Corner Radius
+                        <input type="number" step="0.5" min="0" @bind="RoundRadius" disabled="@IsGenerating" />
+                    </label>
+                    <label title="Chaikin weight (0.01–0.49). Higher = more round. Applied lightly after radius rounding.">
+                        Chaikin Weight
+                        <input type="number" step="0.01" min="0.01" max="0.49" @bind="ChaikinWeight" disabled="@IsGenerating" />
+                    </label>
+                    <label title="Arc tessellation tolerance for rounded corners (0 = auto). Lower = smoother (more points).">
+                        Arc Tolerance
+                        <input type="number" step="0.25" min="0" @bind="RoundArcTolerance" disabled="@IsGenerating" />
+                    </label>
+                </div>
+            </div>
+
+            <div class="control-group">
+                <h4 class="group-title">Export Geometry</h4>
+                <label title="Choose whether DXF export uses original polygon edges or spline-fitted curves.">
+                    Mode
+                    <select @bind="ExportMode" disabled="@IsGenerating">
+                        <option value="Polylines">Polylines</option>
+                        <option value="Splines">Splines</option>
+                    </select>
+                </label>
+
+                @if (ExportMode == ExportGeometryMode.Splines)
+                {
+                    <label title="Catmull–Rom tension (0 = loose, 1 = tight).">
+                        Spline Tension
+                        <input type="number" min="0" max="1" step="0.05" @bind="SplineTension" disabled="@IsGenerating" />
+                    </label>
+                    <label title="Fit-point samples per cubic segment for DXF SPLINE (higher = smoother).">
+                        Samples / Segment
+                        <input type="number" min="2" max="32" step="1" @bind="SplineSamplesPerBezier" disabled="@IsGenerating" />
+                    </label>
+                }
             </div>
         </section>
 
-        <!-- Action Buttons -->
         <section class="actions">
             <button class="btn-primary" @onclick="Generate" disabled="@(_import is null || IsGenerating)">
                 @(IsGenerating ? "⏳ Generating…" : "▶️ Generate")
             </button>
-
             <button class="btn-success" @onclick="ExportDxf" disabled="@(Result is null || IsGenerating)">
-                📐 Export
+                @(ExportMode == ExportGeometryMode.Splines ? "🎛 Export Splines" : "📐 Export Polylines")
             </button>
         </section>
 
-        <!-- Generation Status -->
         @if (IsGenerating)
         {
             <div class="gen-status">
-                <div class="spinner" role="status" aria-label="Generating Voronoi diagram"></div>
+                <div class="spinner"></div>
                 <span>Generating…</span>
             </div>
         }
     </aside>
 
-    <!-- Main Canvas Area -->
     <main class="canvas-area">
         @if (_import?.Outer is null)
         {
             <div class="canvas-placeholder">
                 <div class="placeholder-content">
-                    <svg width="120" height="120" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                        <polyline points="14 2 14 8 20 8"></polyline>
-                        <line x1="12" y1="18" x2="12" y2="12"></line>
-                        <line x1="9" y1="15" x2="15" y2="15"></line>
-                    </svg>
                     <h2>Upload a DXF File</h2>
-                    <p>Select a DXF file with a closed outline from the sidebar to begin generating Voronoi diagrams.</p>
+                    <p>Select a closed outline DXF to begin.</p>
                 </div>
             </div>
         }
@@ -156,8 +166,10 @@
                 <VoronoiCanvas Boundary="_import!.Outer"
                                Holes="@(UseHoles ? _import!.Holes : null)"
                                ShowHoles="UseHoles"
-                               Result="Result"                            
-                               />
+                               Result="Result"
+                               UseSplineDisplay="@(ExportMode == ExportGeometryMode.Splines)"
+                               SplineTension="SplineTension"
+                               SplineSamplesPerBezier="SplineSamplesPerBezier" />
             </div>
         }
     </main>
@@ -165,100 +177,64 @@
 
 @code {
     private DxfImport? _import;
-    private Polygon? _effectiveBoundary;
-    private List<Polygon>? _effectiveHoles;
     private List<Vector2> _seeds = new();
 
-    private ElementReference fileInputRef;
-
-    // UI params
+    // Boundary options
     private bool UseHoles { get; set; } = true;
-
-    // Clamp in setters to enforce UI limits regardless of the HTML attributes.
-    private double _outerOffset = 8f;
+    private double _outerOffset = 8;
     private double _innerOffset = 5;
     private double _cellGap = 3;
     private int _smoothIterations = 2;
     private double _minCellArea = 0;
     private double _maxAspectRatio = 0;
 
-    private double OuterOffset
-    {
-        get => _outerOffset;
-        set => _outerOffset = Math.Max(0, value);
-    }
+    private double OuterOffset { get => _outerOffset; set => _outerOffset = Math.Max(0, value); }
+    private double InnerOffset { get => _innerOffset; set => _innerOffset = Math.Max(0, value); }
+    private double CellGap { get => _cellGap; set => _cellGap = Math.Max(0, value); }
+    private int SmoothIterations { get => _smoothIterations; set => _smoothIterations = Math.Clamp(value, 0, 10); }
+    private double MinCellArea { get => _minCellArea; set => _minCellArea = Math.Max(0, value); }
+    private double MaxAspectRatio { get => _maxAspectRatio; set => _maxAspectRatio = Math.Max(0, value); }
 
-    private double InnerOffset
-    {
-        get => _innerOffset;
-        set => _innerOffset = Math.Max(0, value);
-    }
+    // Rounding parameters
+    private double _roundRadius = 0;
+    private float _chaikinWeight = 0.25f;
+    private double _roundArcTolerance = 0;
 
-    private double CellGap
-    {
-        get => _cellGap;
-        set => _cellGap = Math.Max(0, value);
-    }
+    private double RoundRadius { get => _roundRadius; set => _roundRadius = Math.Max(0, value); }
+    private float ChaikinWeight { get => _chaikinWeight; set => _chaikinWeight = Math.Clamp(value, 0.01f, 0.49f); }
+    private double RoundArcTolerance { get => _roundArcTolerance; set => _roundArcTolerance = Math.Max(0, value); }
 
-    private int SmoothIterations
-    {
-        get => _smoothIterations;
-        set => _smoothIterations = Math.Clamp(value, 0, 10);
-    }
-
-    private double MinCellArea
-    {
-        get => _minCellArea;
-        set => _minCellArea = Math.Max(0, value);
-    }
-
-    private double MaxAspectRatio
-    {
-        get => _maxAspectRatio;
-        set => _maxAspectRatio = Math.Max(0, value);
-    }
-
+    // Seed params
     private int SeedCount { get; set; } = 200;
     private int RngSeed { get; set; } = 12345;
     private float PoissonRadius { get; set; } = 10f;
     private int LloydIterations { get; set; } = 3;
 
-    public VoronoiResult? Result { get; set; }
+    // Export mode
+    private enum ExportGeometryMode { Polylines, Splines }
+    private ExportGeometryMode ExportMode { get; set; } = ExportGeometryMode.Polylines;
+    private double SplineTension { get; set; } = 0.25;
+    private int SplineSamplesPerBezier { get; set; } = 4;
 
+    public VoronoiResult? Result { get; set; }
     private bool IsGenerating { get; set; }
     private CancellationTokenSource? _genCts;
-
-    protected override async Task OnAfterRenderAsync(bool firstRender)
-    {
-        if (firstRender)
-        {
-            await JS.InvokeVoidAsync("voronoiGen.focusElement", "fileInput");
-        }
-    }
 
     private async Task OnFileSelected(InputFileChangeEventArgs e)
     {
         var file = e.File;
-        await using var stream = file.OpenReadStream(maxAllowedSize: 50 * 1024 * 1024);
+        await using var stream = file.OpenReadStream(50 * 1024 * 1024);
         using var ms = new MemoryStream();
         await stream.CopyToAsync(ms);
-        var bytes = ms.ToArray();
-
         try
         {
-            //set chord tolerance to zero to auto derive it
-            _import = DxfLoader.Load(bytes, chordTolerance: 0, simplifyTolerance: 0.2);
-            _effectiveBoundary = _import.Outer;
-            _effectiveHoles = UseHoles ? _import.Holes : null;
+            _import = DxfLoader.Load(ms.ToArray(), chordTolerance: 0, simplifyTolerance: 0.2);
             Result = null;
             StateHasChanged();
         }
-        catch (Exception ex)
+        catch
         {
-            Console.Error.WriteLine(ex);
             _import = null;
-            _effectiveBoundary = null;
-            _effectiveHoles = null;
             Result = null;
             StateHasChanged();
         }
@@ -267,45 +243,35 @@
     private async Task Generate()
     {
         if (_import is null || IsGenerating) return;
-
         IsGenerating = true;
         _genCts?.Dispose();
         _genCts = new CancellationTokenSource();
         var token = _genCts.Token;
-
         StateHasChanged();
         await Task.Yield();
 
         try
         {
             var boundary = _import.Outer;
-            var rawHoles = UseHoles ? _import.Holes : new List<Polygon>();
+            var holes = UseHoles ? _import.Holes : new List<Polygon>();
 
-            _effectiveBoundary = _outerOffset == 0 ? boundary : GeometryUtils.OffsetPolygon(boundary, -(_outerOffset));
-            _effectiveHoles = UseHoles
-                ? (_innerOffset == 0 ? rawHoles : rawHoles.Select(h => GeometryUtils.OffsetPolygon(h, _innerOffset)).ToList())
-                : null;
-
-            _seeds = SeedGenerator.GeneratePoisson(boundary, rawHoles, !UseHoles, PoissonRadius, RngSeed);
+            _seeds = SeedGenerator.GeneratePoisson(boundary, holes, !UseHoles, PoissonRadius, RngSeed);
             if (_seeds.Count == 0 && SeedCount > 0)
-            {
-                _seeds = SeedGenerator.GenerateRandom(boundary, rawHoles, !UseHoles, SeedCount, RngSeed);
-            }
+                _seeds = SeedGenerator.GenerateRandom(boundary, holes, !UseHoles, SeedCount, RngSeed);
 
             Result = await Task.Run(() =>
-            {
-                return LloydIterations > 0
-                    ? VoronoiEngine.ComputeWithLloyd(boundary, rawHoles, !UseHoles, _seeds, LloydIterations, _outerOffset, _innerOffset, CellGap, SmoothIterations, MinCellArea, MaxAspectRatio, token)
-                    : VoronoiEngine.Compute(boundary, rawHoles, !UseHoles, _seeds, _outerOffset, _innerOffset, CellGap, SmoothIterations, MinCellArea, MaxAspectRatio, token);
-            }, token);
+                LloydIterations > 0
+                    ? VoronoiEngine.ComputeWithLloyd(boundary, holes, !UseHoles, _seeds, LloydIterations,
+                        OuterOffset, InnerOffset, CellGap, SmoothIterations, MinCellArea, MaxAspectRatio,
+                        RoundRadius, ChaikinWeight, RoundArcTolerance, token)
+                    : VoronoiEngine.Compute(boundary, holes, !UseHoles, _seeds,
+                        OuterOffset, InnerOffset, CellGap, SmoothIterations, MinCellArea, MaxAspectRatio,
+                        RoundRadius, ChaikinWeight, RoundArcTolerance, token),
+                token);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) { }
+        catch
         {
-            // cancelled: keep previous Result
-        }
-        catch (Exception ex)
-        {
-            Console.Error.WriteLine(ex);
             Result = null;
         }
         finally
@@ -317,20 +283,22 @@
         }
     }
 
-    private void CancelGeneration()
-    {
-        _genCts?.Cancel();
-    }
-
     private void ExportDxf()
     {
         if (Result is null || IsGenerating) return;
         var holes = UseHoles ? _import?.Holes : null;
-        var bytes = DxfExporter.Export(Result, holes);
+
+        byte[] bytes = ExportMode == ExportGeometryMode.Splines
+            ? DxfExporter.ExportSplines(Result, holes, (float)SplineTension, SplineSamplesPerBezier)
+            : DxfExporter.ExportPolylines(Result, holes);
+
         var base64 = Convert.ToBase64String(bytes);
-        var timestamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
-        JS.InvokeVoidAsync("voronoiGen.downloadBlob", base64, "application/dxf", $"voronoi-{timestamp}.dxf");
+        var ts = DateTime.Now.ToString("yyyyMMdd-HHmmss");
+        var suffix = ExportMode == ExportGeometryMode.Splines ? "splines" : "polylines";
+        JS.InvokeVoidAsync("voronoiGen.downloadBlob", base64, "application/dxf", $"voronoi-{suffix}-{ts}.dxf");
     }
+
+    private void CancelGeneration() => _genCts?.Cancel();
 
     [Inject] private IJSRuntime JS { get; set; } = default!;
 }

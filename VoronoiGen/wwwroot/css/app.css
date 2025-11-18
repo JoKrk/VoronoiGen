@@ -59,18 +59,19 @@ body {
     line-height: 1.5;
     margin: 0;
     padding: 0;
-    overflow: hidden;
+    overflow: auto;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
 }
 
 @media (min-width: 769px) {
-    body:has(.app-layout) {
-        overflow: hidden; /* only app pages become non-scrolling shells */
+    body:has(.app-layout),
+    body.app-shell { /* optional class fallback if :has() unsupported */
+        overflow: hidden;
     }
 
     .app-layout {
-        height: 100dvh; /* already present below; keeping for clarity */
+        height: 100dvh;
     }
 }
 
@@ -901,17 +902,6 @@ code {
     margin-bottom: var(--space-xl) !important;
 }
 
-/* Desktop: keep full-height layout but use dynamic viewport units to avoid iOS bars issues */
-@media (min-width: 769px) {
-    body {
-        overflow: hidden;
-    }
-
-    .app-layout {
-        height: 100dvh;
-    }
-    /* overrides base 100vh */
-}
 
 /* Tablet and below: let the page scroll and avoid scroll traps */
 @media (max-width: 1024px) {

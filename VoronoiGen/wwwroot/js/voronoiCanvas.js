@@ -1,23 +1,6 @@
 export function getContainerSize(container) {
     const rect = container.getBoundingClientRect();
-    return {
-        width: Math.floor(rect.width),
-        height: Math.floor(rect.height)
-    };
-}
-
-export function setupResizeObserver(container, dotNetRef) {
-    const observer = new ResizeObserver(() => {
-        dotNetRef.invokeMethodAsync('OnResize');
-    });
-    observer.observe(container);
-
-    // Return a disposable object
-    return {
-        dispose: () => {
-            observer.disconnect();
-        }
-    };
+    return { width: Math.floor(rect.width), height: Math.floor(rect.height) };
 }
 
 export function prepareCanvas(canvas, cssWidth, cssHeight) {
@@ -42,13 +25,15 @@ export function clearCanvas(canvas, w, h) {
 
 export function drawVoronoi(canvas, data) {
     const ctx = canvas.getContext('2d');
-
     const {
         pixelWidth, pixelHeight,
         boundsLeft, boundsTop,
         offsetX, offsetY, scale,
-        boundary, originalBoundary, cells, seeds,
-        holes, showHoles,
+        boundary, originalBoundary,
+        cells, cellsBezier,
+        holes,                 // holes are always polylines
+        seeds,
+        showHoles, splineMode,
         showDebug, hudLines
     } = data;
 
@@ -57,22 +42,37 @@ export function drawVoronoi(canvas, data) {
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, pixelWidth, pixelHeight);
 
-    // World transform
     ctx.save();
     ctx.translate(offsetX, offsetY);
     ctx.scale(scale, scale);
     ctx.translate(-boundsLeft, -boundsTop);
 
-    // Cells
-    if (Array.isArray(cells) && cells.length > 0) {
-        ctx.strokeStyle = 'rgba(0,0,0,0.78)';
-        ctx.lineWidth = 1 / scale;
-        for (let k = 0; k < cells.length; k++) {
-            const flat = cells[k];
+    // Cells (polyline vs spline)
+    ctx.strokeStyle = 'rgba(0,0,0,0.78)';
+    ctx.lineWidth = 1 / scale;
+
+    if (!splineMode && Array.isArray(cells) && cells.length > 0) {
+        for (const flat of cells) {
             if (!flat || flat.length < 6) continue;
             ctx.beginPath();
             ctx.moveTo(flat[0], flat[1]);
             for (let i = 2; i < flat.length; i += 2) ctx.lineTo(flat[i], flat[i + 1]);
+            ctx.closePath();
+            ctx.stroke();
+        }
+    } else if (splineMode && Array.isArray(cellsBezier) && cellsBezier.length > 0) {
+        for (const bez of cellsBezier) {
+            if (!bez || bez.length < 8) continue;
+            ctx.beginPath();
+            ctx.moveTo(bez[0], bez[1]);
+            // groups of 6: c1x,c1y,c2x,c2y,p3x,p3y
+            for (let i = 2; i + 5 < bez.length; i += 6) {
+                ctx.bezierCurveTo(
+                    bez[i], bez[i + 1],
+                    bez[i + 2], bez[i + 3],
+                    bez[i + 4], bez[i + 5]
+                );
+            }
             ctx.closePath();
             ctx.stroke();
         }
@@ -81,10 +81,9 @@ export function drawVoronoi(canvas, data) {
     const hasOriginal = Array.isArray(originalBoundary) && originalBoundary.length >= 6;
     const hasBoundary = Array.isArray(boundary) && boundary.length >= 6;
 
-    // When original is present, draw it solid + filled, and draw offset boundary dashed.
-    // When original is absent (initial load), draw boundary solid + filled.
+    // Boundary layers
     if (hasOriginal) {
-        // Original DXF boundary (solid + fill)
+        // Original fill + stroke
         ctx.fillStyle = 'rgba(0,128,255,0.125)';
         ctx.beginPath();
         ctx.moveTo(originalBoundary[0], originalBoundary[1]);
@@ -100,11 +99,8 @@ export function drawVoronoi(canvas, data) {
         ctx.closePath();
         ctx.stroke();
 
-        // Working (offset) boundary as dashed outline (no fill)
         if (hasBoundary) {
             ctx.save();
-            ctx.strokeStyle = '#000';
-            ctx.lineWidth = 2 / scale;
             ctx.setLineDash([6 / scale, 4 / scale]);
             ctx.beginPath();
             ctx.moveTo(boundary[0], boundary[1]);
@@ -114,7 +110,6 @@ export function drawVoronoi(canvas, data) {
             ctx.restore();
         }
     } else if (hasBoundary) {
-        // Initial load: treat boundary as the original (solid + fill)
         ctx.fillStyle = 'rgba(0,128,255,0.125)';
         ctx.beginPath();
         ctx.moveTo(boundary[0], boundary[1]);
@@ -131,16 +126,15 @@ export function drawVoronoi(canvas, data) {
         ctx.stroke();
     }
 
-    // Holes (internal contours) - draw when showHoles is enabled
+    // Holes (always polylines)
     if (showHoles && Array.isArray(holes) && holes.length > 0) {
         ctx.strokeStyle = '#ff0000';
         ctx.lineWidth = 2 / scale;
-        for (let h = 0; h < holes.length; h++) {
-            const holeFlat = holes[h];
-            if (!holeFlat || holeFlat.length < 6) continue;
+        for (const flat of holes) {
+            if (!flat || flat.length < 6) continue;
             ctx.beginPath();
-            ctx.moveTo(holeFlat[0], holeFlat[1]);
-            for (let i = 2; i < holeFlat.length; i += 2) ctx.lineTo(holeFlat[i], holeFlat[i + 1]);
+            ctx.moveTo(flat[0], flat[1]);
+            for (let i = 2; i < flat.length; i += 2) ctx.lineTo(flat[i], flat[i + 1]);
             ctx.closePath();
             ctx.stroke();
         }
@@ -157,8 +151,8 @@ export function drawVoronoi(canvas, data) {
         }
     }
 
-    // HUD in device space
     ctx.restore();
+
     if (showDebug && Array.isArray(hudLines)) {
         ctx.fillStyle = 'blue';
         ctx.font = '12px monospace';

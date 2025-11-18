@@ -1,11 +1,12 @@
+using IxMilia.Dxf;
+using IxMilia.Dxf.Entities;
+using IxMilia.Dxf.Objects;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Numerics;
 using VoronoiGen.Models;
-using IxMilia.Dxf;
-using IxMilia.Dxf.Entities;
 
 namespace VoronoiGen.Services
 {
@@ -13,7 +14,7 @@ namespace VoronoiGen.Services
     // Integration: Home page calls Export to let the user download the generated pattern as DXF.
     public static class DxfExporter
     {
-        public static byte[] Export(VoronoiResult result, List<Polygon>? holes = null)
+        public static byte[] ExportPolylines(VoronoiResult result, List<Polygon>? holes = null)
         {
             if (result is null)
                 throw new ArgumentNullException(nameof(result));
@@ -107,88 +108,117 @@ namespace VoronoiGen.Services
             return ms.ToArray();
         }
 
-        // Legacy method for backward compatibility - exports unique edges
-        private static HashSet<Edge> ExtractUniqueEdges(List<Polygon> cells)
+        /// <param name="result">Voronoi result containing cells.</param>
+        /// <param name="holes">Optional hole polygons.</param>
+        /// <param name="tension">Catmull–Rom tension in [0,1].</param>
+        /// <param name="samplesPerBezier">Samples per cubic segment (>=2 recommended).</param>
+        public static byte[] ExportSplines(
+            VoronoiResult result,
+            List<Polygon>? holes,
+            float tension = 0.5f,
+            int samplesPerBezier = 8)
         {
-            var edges = new HashSet<Edge>();
-            const float epsilon = 1e-4f;
+            if (result is null) throw new ArgumentNullException(nameof(result));
+            samplesPerBezier = Math.Max(2, samplesPerBezier);
 
-            foreach (var cell in cells)
+            var dxfFile = new DxfFile();
+            dxfFile.Header.Version = DxfAcadVersion.R2013; // Ensure SPLINE + LWPOLYLINE are supported
+
+            dxfFile.Layers.Add(new DxfLayer("CELLS") { Color = DxfColor.FromIndex(7) }); // White
+            dxfFile.Layers.Add(new DxfLayer("BOUNDARY") { Color = DxfColor.FromIndex(1) }); // Red
+            dxfFile.Layers.Add(new DxfLayer("HOLES") { Color = DxfColor.FromIndex(5) }); // Blue
+
+            if (result.OriginalBoundary?.Points.Count >= 3)
             {
-                if (cell.Points.Count < 3)
-                    continue;
-
-                // Process each edge of the cell polygon
-                for (int i = 0; i < cell.Points.Count; i++)
+                var boundaryVertices = new List<DxfLwPolylineVertex>();
+                foreach (var point in result.OriginalBoundary.Points)
                 {
-                    var p1 = cell.Points[i];
-                    var p2 = cell.Points[(i + 1) % cell.Points.Count];
+                    boundaryVertices.Add(new DxfLwPolylineVertex { X = point.X, Y = point.Y });
+                }
 
-                    // Normalize edge direction (smaller point first) to detect duplicates
-                    var edge = new Edge(p1, p2, epsilon);
-                    edges.Add(edge);
+                var boundaryPolyline = new DxfLwPolyline(boundaryVertices)
+                {
+                    IsClosed = true,
+                    Layer = "BOUNDARY"
+                };
+
+                dxfFile.Entities.Add(boundaryPolyline);
+            }
+
+            if (holes != null)
+            {
+                foreach (var hole in holes)
+                {
+                    if (hole.Points.Count < 3) continue;
+
+                    var holeVertices = new List<DxfLwPolylineVertex>();
+                    foreach (var point in hole.Points)
+                    {
+                        holeVertices.Add(new DxfLwPolylineVertex { X = point.X, Y = point.Y });
+                    }
+
+                    var holePolyline = new DxfLwPolyline(holeVertices)
+                    {
+                        IsClosed = true,
+                        Layer = "HOLES"
+                    };
+
+                    dxfFile.Entities.Add(holePolyline);
                 }
             }
 
-            return edges;
+            foreach (var cell in result.Cells)
+            {
+                if (cell.Points.Count < 3) continue;
+                var fit = SampleClosedBezier(cell.Points, tension, samplesPerBezier);
+                if (fit.Count < 4) continue;
+
+                var spline = new DxfSpline
+                {
+                    DegreeOfCurve = 3,
+                    IsClosed = true,
+                    Layer = "CELLS"
+                };
+
+                foreach (var pt in fit)
+                    spline.FitPoints.Add(new DxfPoint(pt.X, pt.Y, 0.0));
+
+                dxfFile.Entities.Add(spline);
+            }
+
+            using var ms = new MemoryStream();
+            dxfFile.Save(ms);
+            return ms.ToArray();
         }
 
-        // Edge struct that normalizes direction and uses value-based equality with tolerance
-        private readonly struct Edge : IEquatable<Edge>
+        // Sample each cubic Bézier segment uniformly (including segment end).
+        private static List<Vector2> SampleClosedBezier(IReadOnlyList<Vector2> poly, float tension, int samplesPerBezier)
         {
-            public readonly Vector2 Start;
-            public readonly Vector2 End;
-            private readonly float _epsilon;
+            var output = new List<Vector2>();
+            // Use centripetal CR with clamped handles to avoid loops
+            var segments = SplineUtils.ToClosedCubicBeziersCentripetal(
+                poly,
+                tension: tension,         // try 0.25
+                alpha: 0.5f,              // centripetal
+                clampFactor: 0.5f,        // max 50% of smaller adjacent edge
+                minCornerAngleDeg: 30f);  // shrink handles for very sharp corners
 
-            public Edge(Vector2 a, Vector2 b, float epsilon)
+            if (segments.Count == 0) return output;
+
+            // First anchor
+            output.Add(segments[0].P0);
+
+            foreach (var seg in segments)
             {
-                _epsilon = epsilon;
-                // Normalize: put the "smaller" point first (lexicographic order)
-                if (IsLess(a, b, epsilon))
+                for (int i = 1; i <= samplesPerBezier; i++)
                 {
-                    Start = a;
-                    End = b;
-                }
-                else
-                {
-                    Start = b;
-                    End = a;
+                    float t = i / (float)samplesPerBezier;
+                    output.Add(SplineUtils.Eval(seg, t));
                 }
             }
 
-            private static bool IsLess(Vector2 a, Vector2 b, float epsilon)
-            {
-                // Lexicographic comparison: first by X, then by Y
-                if (Math.Abs(a.X - b.X) > epsilon)
-                    return a.X < b.X;
-                return a.Y < b.Y;
-            }
-
-            public bool Equals(Edge other)
-            {
-                return PointsEqual(Start, other.Start, _epsilon) &&
-                       PointsEqual(End, other.End, _epsilon);
-            }
-
-            public override bool Equals(object? obj)
-            {
-                return obj is Edge edge && Equals(edge);
-            }
-
-            public override int GetHashCode()
-            {
-                // Simple hash based on rounded coordinates
-                int h1 = ((int)(Start.X / _epsilon)).GetHashCode();
-                int h2 = ((int)(Start.Y / _epsilon)).GetHashCode();
-                int h3 = ((int)(End.X / _epsilon)).GetHashCode();
-                int h4 = ((int)(End.Y / _epsilon)).GetHashCode();
-                return HashCode.Combine(h1, h2, h3, h4);
-            }
-
-            private static bool PointsEqual(Vector2 a, Vector2 b, float epsilon)
-            {
-                return Math.Abs(a.X - b.X) < epsilon && Math.Abs(a.Y - b.Y) < epsilon;
-            }
+            return output;
         }
+
     }
 }

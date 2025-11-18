@@ -26,6 +26,9 @@ namespace VoronoiGen.Services
             int smoothIterations = 0,
             double minCellArea = 0,
             double maxAspectRatio = 0,
+            double roundRadius = 0,           // new: absolute fillet radius (0 = auto)
+            float chaikinWeight = 0.25f,      // new: Chaikin split weight (0..0.5)
+            double roundArcTolerance = 0,     // new: arc tessellation tolerance (0 = auto)
             CancellationToken token = default)
         {
             token.ThrowIfCancellationRequested();
@@ -36,7 +39,11 @@ namespace VoronoiGen.Services
 
             var rawCells = ComputeCells(workOuter, workHoles, ignoreHoles, filteredSeeds, token);
 
-            var processed = PostProcessCells(rawCells, workOuter, workHoles, ignoreHoles, cellGap, smoothIterations, minCellArea, maxAspectRatio, token);
+            var processed = PostProcessCells(
+                rawCells, workOuter, workHoles, ignoreHoles,
+                cellGap, smoothIterations, minCellArea, maxAspectRatio,
+                roundRadius, chaikinWeight, roundArcTolerance,
+                token);
 
             token.ThrowIfCancellationRequested();
 
@@ -55,6 +62,9 @@ namespace VoronoiGen.Services
             int smoothIterations = 0,
             double minCellArea = 0,
             double maxAspectRatio = 0,
+            double roundRadius = 0,           // new
+            float chaikinWeight = 0.25f,      // new
+            double roundArcTolerance = 0,     // new
             CancellationToken token = default)
         {
             token.ThrowIfCancellationRequested();
@@ -85,7 +95,11 @@ namespace VoronoiGen.Services
             }
 
             var finalCells = ComputeCells(workOuter, workHoles, ignoreHoles, currentSeeds, token);
-            var processed = PostProcessCells(finalCells, workOuter, workHoles, ignoreHoles, cellGap, smoothIterations, minCellArea, maxAspectRatio, token);
+            var processed = PostProcessCells(
+                finalCells, workOuter, workHoles, ignoreHoles,
+                cellGap, smoothIterations, minCellArea, maxAspectRatio,
+                roundRadius, chaikinWeight, roundArcTolerance,
+                token);
 
             token.ThrowIfCancellationRequested();
             return new VoronoiResult(boundary, workOuter, processed, currentSeeds);
@@ -277,6 +291,9 @@ namespace VoronoiGen.Services
             int smoothIterations,
             double minCellArea,
             double maxAspectRatio,
+            double roundRadius,
+            float chaikinWeight,
+            double roundArcTolerance,
             CancellationToken token)
         {
             var regionPaths = BuildRegionPaths(workOuter, workHoles, ignoreHoles);
@@ -298,29 +315,38 @@ namespace VoronoiGen.Services
 
                 // 2) Corner-rounding pass with constant-radius opening (erode then dilate).
                 //    This removes sharp corners while largely preserving bulk geometry.
-                if (smoothIterations > 0 && poly.Count >= 3)
+                bool wantRound = (smoothIterations > 0) || (roundRadius > 0);
+                if (wantRound && poly.Count >= 3)
                 {
                     // Estimate a conservative radius:
-                    // - If there’s a gap, tie radius to that (won’t exceed gap/2).
+                    // - If explicit radius provided, use it.
+                    // - Else if there’s a gap, tie base radius to that.
                     // - Otherwise, derive from local average edge length.
                     double avgLen = AverageEdgeLength(poly);
+
                     double baseR = (cellGap > 0)
-                        ? Math.Min(Math.Abs(effectiveOffset), Math.Max(1e-3, 0.5 * Math.Abs(effectiveOffset)))
+                        ? Math.Abs(effectiveOffset)
                         : Math.Max(1e-3, 0.15 * avgLen);
 
-                    double rPerIter = baseR; // one iteration ≈ one base radius
-                    double r = Math.Clamp(smoothIterations * rPerIter, 0, 0.45 * avgLen);
+                    double r = (roundRadius > 0)
+                        ? roundRadius
+                        : Math.Clamp(smoothIterations * baseR, 0, 0.45 * avgLen);
 
                     if (r > 1e-5)
                     {
-                        poly = RoundCornersOpening(poly, r, Math.Max(0.25, r / 6.0));
+                        double arcTol = (roundArcTolerance > 0)
+                            ? roundArcTolerance
+                            : Math.Max(0.25, r / 6.0);
+
+                        poly = RoundCornersOpening(poly, r, arcTol);
+
                         // Optional light Chaikin pass to even arc tessellation.
-                        poly = ChaikinSmooth(poly, 1, 0.25f);
+                        poly = ChaikinSmooth(poly, 1, Math.Clamp(chaikinWeight, 0.01f, 0.49f));
                     }
                     else
                     {
                         // Fallback to Chaikin only (very small radius).
-                        poly = ChaikinSmooth(poly, smoothIterations, 0.25f);
+                        poly = ChaikinSmooth(poly, Math.Max(0, smoothIterations), Math.Clamp(chaikinWeight, 0.01f, 0.49f));
                     }
                 }
 
