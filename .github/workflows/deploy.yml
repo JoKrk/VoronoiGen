@@ -22,11 +22,8 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '9.0.x'
-      - name: Restore .NET workloads
-        run: dotnet workload restore
-
       - name: Install wasm-tools workload
-        run: dotnet workload install wasm-tools
+        run: dotnet workload install wasm-tools-net9
       
       - name: Restore NuGet packages
         run: dotnet restore
