@@ -4,6 +4,16 @@ VoronoiGen is a Blazor WebAssembly (.NET 9) tool that generates Voronoi-based li
 
 > All processing runs client-side in the browser. No file contents are uploaded to a server.
 
+## Export Counting
+
+The app sends one privacy-friendly event after a DXF download starts successfully. Cloudflare Pages handles this at `/api/export-count` and stores aggregate counters in a KV namespace bound as `EXPORT_COUNTS`.
+
+To enable it in Cloudflare Pages:
+
+1. Create a KV namespace.
+2. Add a Pages production binding named `EXPORT_COUNTS` that points to that namespace.
+3. Visit `/api/export-count` on the deployed site to see the current `{ total, today }` counts.
+
 ## Features
 
 - Upload a closed-outline DXF (outer boundary + optional holes)

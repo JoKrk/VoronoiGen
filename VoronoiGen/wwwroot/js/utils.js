@@ -35,6 +35,30 @@ window.voronoiGen = {
     }
   },
 
+  trackDxfExport: function (mode) {
+    try {
+      const body = JSON.stringify({ mode: mode || "unknown" });
+
+      if (navigator.sendBeacon) {
+        const blob = new Blob([body], { type: "application/json" });
+        if (navigator.sendBeacon("/api/export-count", blob)) {
+          return true;
+        }
+      }
+
+      fetch("/api/export-count", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body,
+        keepalive: true
+      }).catch(() => {});
+
+      return true;
+    } catch {
+      return false;
+    }
+  },
+
   focusElement: function (id) {
     const element = document.getElementById(id);
     if (element) {

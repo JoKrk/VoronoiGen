@@ -283,7 +283,7 @@
         }
     }
 
-    private void ExportDxf()
+    private async Task ExportDxf()
     {
         if (Result is null || IsGenerating) return;
         var holes = UseHoles ? _import?.Holes : null;
@@ -295,7 +295,11 @@
         var base64 = Convert.ToBase64String(bytes);
         var ts = DateTime.Now.ToString("yyyyMMdd-HHmmss");
         var suffix = ExportMode == ExportGeometryMode.Splines ? "splines" : "polylines";
-        JS.InvokeVoidAsync("voronoiGen.downloadBlob", base64, "application/dxf", $"voronoi-{suffix}-{ts}.dxf");
+        var downloaded = await JS.InvokeAsync<bool>("voronoiGen.downloadBlob", base64, "application/dxf", $"voronoi-{suffix}-{ts}.dxf");
+        if (downloaded)
+        {
+            await JS.InvokeVoidAsync("voronoiGen.trackDxfExport", suffix);
+        }
     }
 
     private void CancelGeneration() => _genCts?.Cancel();
