@@ -8,6 +8,8 @@ using VoronoiGen.Models;
 
 namespace VoronoiGen.Services
 {
+    public readonly record struct GenerationProgress(double Percent, string Stage, string Detail);
+
     /// <summary>
     /// Voronoi generation inside a polygon with optional holes, with support for
     /// Lloyd relaxation, boundary/hole offsets, cell spacing (gap), and smoothing.
@@ -29,23 +31,27 @@ namespace VoronoiGen.Services
             double roundRadius = 0,           // new: absolute fillet radius (0 = auto)
             float chaikinWeight = 0.25f,      // new: Chaikin split weight (0..0.5)
             double roundArcTolerance = 0,     // new: arc tessellation tolerance (0 = auto)
-            CancellationToken token = default)
+            CancellationToken token = default,
+            IProgress<GenerationProgress>? progress = null)
         {
             token.ThrowIfCancellationRequested();
+            ReportProgress(progress, 0.10, "Preparing geometry", "Applying boundary and hole offsets");
 
             var (workOuter, workHoles) = BuildWorkingRegion(boundary, holes, ignoreHoles, outerOffset, innerOffset);
 
+            ReportProgress(progress, 0.14, "Filtering seeds", $"Checking {seeds.Count:N0} seed points");
             var filteredSeeds = FilterBoundarySeeds(seeds, workOuter, workHoles, minDistanceFromEdge: cellGap * 0.5);
 
-            var rawCells = ComputeCells(workOuter, workHoles, ignoreHoles, filteredSeeds, token);
+            var rawCells = ComputeCells(workOuter, workHoles, ignoreHoles, filteredSeeds, token, progress, 0.18, 0.62, "Computing Voronoi cells");
 
             var processed = PostProcessCells(
                 rawCells, workOuter, workHoles, ignoreHoles,
                 cellGap, smoothIterations, minCellArea, maxAspectRatio,
                 roundRadius, chaikinWeight, roundArcTolerance,
-                token);
+                token, progress, 0.80, 0.18);
 
             token.ThrowIfCancellationRequested();
+            ReportProgress(progress, 1.0, "Complete", $"Generated {processed.Count:N0} cells");
 
             return new VoronoiResult(boundary, workOuter, processed, filteredSeeds);
         }
@@ -65,18 +71,24 @@ namespace VoronoiGen.Services
             double roundRadius = 0,           // new
             float chaikinWeight = 0.25f,      // new
             double roundArcTolerance = 0,     // new
-            CancellationToken token = default)
+            CancellationToken token = default,
+            IProgress<GenerationProgress>? progress = null)
         {
             token.ThrowIfCancellationRequested();
+            ReportProgress(progress, 0.10, "Preparing geometry", "Applying boundary and hole offsets");
 
             var (workOuter, workHoles) = BuildWorkingRegion(boundary, holes, ignoreHoles, outerOffset, innerOffset);
             var currentSeeds = new List<Vector2>(seeds);
+            var lloydWeight = iterations > 0 ? 0.58 / iterations : 0;
 
             for (int it = 0; it < iterations; it++)
             {
                 token.ThrowIfCancellationRequested();
 
-                var cells = ComputeCells(workOuter, workHoles, ignoreHoles, currentSeeds, token);
+                var iterationBase = 0.16 + (it * lloydWeight);
+                var cells = ComputeCells(
+                    workOuter, workHoles, ignoreHoles, currentSeeds, token, progress,
+                    iterationBase, lloydWeight * 0.82, $"Lloyd relaxation {it + 1}/{iterations}");
 
                 for (int i = 0; i < currentSeeds.Count; i++)
                 {
@@ -91,17 +103,137 @@ namespace VoronoiGen.Services
                         else
                             currentSeeds[i] = NudgeInside(currentSeeds[i], c, workOuter, workHoles, ignoreHoles);
                     }
+
+                    if ((i & 31) == 0)
+                    {
+                        var movePercent = iterationBase + (lloydWeight * 0.82) + (lloydWeight * 0.18 * ((i + 1) / (double)Math.Max(1, currentSeeds.Count)));
+                        ReportProgress(progress, movePercent, $"Lloyd relaxation {it + 1}/{iterations}", $"Moving seed {i + 1:N0} of {currentSeeds.Count:N0}");
+                    }
                 }
             }
 
-            var finalCells = ComputeCells(workOuter, workHoles, ignoreHoles, currentSeeds, token);
+            var finalCells = ComputeCells(workOuter, workHoles, ignoreHoles, currentSeeds, token, progress, 0.74, 0.16, "Computing final cells");
             var processed = PostProcessCells(
                 finalCells, workOuter, workHoles, ignoreHoles,
                 cellGap, smoothIterations, minCellArea, maxAspectRatio,
                 roundRadius, chaikinWeight, roundArcTolerance,
-                token);
+                token, progress, 0.90, 0.08);
 
             token.ThrowIfCancellationRequested();
+            ReportProgress(progress, 1.0, "Complete", $"Generated {processed.Count:N0} cells");
+            return new VoronoiResult(boundary, workOuter, processed, currentSeeds);
+        }
+
+        public static async Task<VoronoiResult> ComputeAsync(
+            Polygon boundary,
+            List<Polygon>? holes,
+            bool ignoreHoles,
+            List<Vector2> seeds,
+            double outerOffset,
+            double innerOffset,
+            double cellGap = 0,
+            int smoothIterations = 0,
+            double minCellArea = 0,
+            double maxAspectRatio = 0,
+            double roundRadius = 0,
+            float chaikinWeight = 0.25f,
+            double roundArcTolerance = 0,
+            CancellationToken token = default,
+            IProgress<GenerationProgress>? progress = null)
+        {
+            token.ThrowIfCancellationRequested();
+            ReportProgress(progress, 0.10, "Preparing geometry", "Applying boundary and hole offsets");
+            await YieldToUi(token);
+
+            var (workOuter, workHoles) = BuildWorkingRegion(boundary, holes, ignoreHoles, outerOffset, innerOffset);
+
+            ReportProgress(progress, 0.14, "Filtering seeds", $"Checking {seeds.Count:N0} seed points");
+            await YieldToUi(token);
+            var filteredSeeds = FilterBoundarySeeds(seeds, workOuter, workHoles, minDistanceFromEdge: cellGap * 0.5);
+
+            var rawCells = await ComputeCellsAsync(workOuter, workHoles, ignoreHoles, filteredSeeds, token, progress, 0.18, 0.62, "Computing Voronoi cells");
+
+            var processed = await PostProcessCellsAsync(
+                rawCells, workOuter, workHoles, ignoreHoles,
+                cellGap, smoothIterations, minCellArea, maxAspectRatio,
+                roundRadius, chaikinWeight, roundArcTolerance,
+                token, progress, 0.80, 0.18);
+
+            token.ThrowIfCancellationRequested();
+            ReportProgress(progress, 1.0, "Complete", $"Generated {processed.Count:N0} cells");
+            await YieldToUi(token);
+
+            return new VoronoiResult(boundary, workOuter, processed, filteredSeeds);
+        }
+
+        public static async Task<VoronoiResult> ComputeWithLloydAsync(
+            Polygon boundary,
+            List<Polygon>? holes,
+            bool ignoreHoles,
+            List<Vector2> seeds,
+            int iterations,
+            double outerOffset,
+            double innerOffset,
+            double cellGap = 0,
+            int smoothIterations = 0,
+            double minCellArea = 0,
+            double maxAspectRatio = 0,
+            double roundRadius = 0,
+            float chaikinWeight = 0.25f,
+            double roundArcTolerance = 0,
+            CancellationToken token = default,
+            IProgress<GenerationProgress>? progress = null)
+        {
+            token.ThrowIfCancellationRequested();
+            ReportProgress(progress, 0.10, "Preparing geometry", "Applying boundary and hole offsets");
+            await YieldToUi(token);
+
+            var (workOuter, workHoles) = BuildWorkingRegion(boundary, holes, ignoreHoles, outerOffset, innerOffset);
+            var currentSeeds = new List<Vector2>(seeds);
+            var lloydWeight = iterations > 0 ? 0.58 / iterations : 0;
+
+            for (int it = 0; it < iterations; it++)
+            {
+                token.ThrowIfCancellationRequested();
+
+                var iterationBase = 0.16 + (it * lloydWeight);
+                var cells = await ComputeCellsAsync(
+                    workOuter, workHoles, ignoreHoles, currentSeeds, token, progress,
+                    iterationBase, lloydWeight * 0.82, $"Lloyd relaxation {it + 1}/{iterations}");
+
+                for (int i = 0; i < currentSeeds.Count; i++)
+                {
+                    token.ThrowIfCancellationRequested();
+
+                    var poly = cells[i];
+                    if (poly.Points.Count >= 3)
+                    {
+                        var c = poly.Centroid();
+                        if (SeedGenerator.PointInRegion(c, workOuter, workHoles, ignoreHoles))
+                            currentSeeds[i] = c;
+                        else
+                            currentSeeds[i] = NudgeInside(currentSeeds[i], c, workOuter, workHoles, ignoreHoles);
+                    }
+
+                    if ((i & 31) == 0)
+                    {
+                        var movePercent = iterationBase + (lloydWeight * 0.82) + (lloydWeight * 0.18 * ((i + 1) / (double)Math.Max(1, currentSeeds.Count)));
+                        ReportProgress(progress, movePercent, $"Lloyd relaxation {it + 1}/{iterations}", $"Moving seed {i + 1:N0} of {currentSeeds.Count:N0}");
+                        await YieldToUi(token);
+                    }
+                }
+            }
+
+            var finalCells = await ComputeCellsAsync(workOuter, workHoles, ignoreHoles, currentSeeds, token, progress, 0.74, 0.16, "Computing final cells");
+            var processed = await PostProcessCellsAsync(
+                finalCells, workOuter, workHoles, ignoreHoles,
+                cellGap, smoothIterations, minCellArea, maxAspectRatio,
+                roundRadius, chaikinWeight, roundArcTolerance,
+                token, progress, 0.90, 0.08);
+
+            token.ThrowIfCancellationRequested();
+            ReportProgress(progress, 1.0, "Complete", $"Generated {processed.Count:N0} cells");
+            await YieldToUi(token);
             return new VoronoiResult(boundary, workOuter, processed, currentSeeds);
         }
 
@@ -112,14 +244,24 @@ namespace VoronoiGen.Services
             List<Polygon>? workHoles,
             bool ignoreHoles,
             List<Vector2> seeds,
-            CancellationToken token)
+            CancellationToken token,
+            IProgress<GenerationProgress>? progress = null,
+            double basePercent = 0,
+            double weight = 1,
+            string stage = "Computing Voronoi cells")
         {
             var result = new List<Polygon>(seeds.Count);
             var regionPaths = BuildRegionPaths(workOuter, workHoles, ignoreHoles);
+            var reportEvery = Math.Max(1, seeds.Count / 100);
 
             for (int i = 0; i < seeds.Count; i++)
             {
                 token.ThrowIfCancellationRequested();
+
+                if (i == 0 || (i % reportEvery) == 0)
+                {
+                    ReportProgress(progress, basePercent + (weight * (i / (double)Math.Max(1, seeds.Count))), stage, $"Cell {i + 1:N0} of {seeds.Count:N0}");
+                }
 
                 var si = seeds[i];
                 var cell = new List<Vector2>(workOuter.Points);
@@ -142,6 +284,66 @@ namespace VoronoiGen.Services
                 result.Add(clipped);
             }
 
+            ReportProgress(progress, basePercent + weight, stage, $"Computed {seeds.Count:N0} cells");
+            return result;
+        }
+
+        private static async Task<List<Polygon>> ComputeCellsAsync(
+            Polygon workOuter,
+            List<Polygon>? workHoles,
+            bool ignoreHoles,
+            List<Vector2> seeds,
+            CancellationToken token,
+            IProgress<GenerationProgress>? progress = null,
+            double basePercent = 0,
+            double weight = 1,
+            string stage = "Computing Voronoi cells")
+        {
+            var result = new List<Polygon>(seeds.Count);
+            var regionPaths = BuildRegionPaths(workOuter, workHoles, ignoreHoles);
+            var reportEvery = Math.Max(1, seeds.Count / 100);
+
+            for (int i = 0; i < seeds.Count; i++)
+            {
+                token.ThrowIfCancellationRequested();
+
+                if (i == 0 || (i % reportEvery) == 0)
+                {
+                    ReportProgress(progress, basePercent + (weight * (i / (double)Math.Max(1, seeds.Count))), stage, $"Cell {i + 1:N0} of {seeds.Count:N0}");
+                    await YieldToUi(token);
+                }
+
+                var si = seeds[i];
+                var cell = new List<Vector2>(workOuter.Points);
+
+                for (int j = 0; j < seeds.Count; j++)
+                {
+                    if (j == i) continue;
+
+                    if ((j & 7) == 0) token.ThrowIfCancellationRequested();
+                    if ((j & 127) == 0)
+                    {
+                        ReportProgress(
+                            progress,
+                            basePercent + (weight * ((i + (j / (double)Math.Max(1, seeds.Count))) / Math.Max(1, seeds.Count))),
+                            stage,
+                            $"Cell {i + 1:N0} of {seeds.Count:N0}");
+                        await YieldToUi(token);
+                    }
+
+                    var sj = seeds[j];
+                    var m = 0.5f * (si + sj);
+                    var n = sj - si;
+                    cell = ClipWithHalfPlane(cell, m, n);
+                    if (cell.Count < 3) break;
+                }
+
+                var clipped = ClipPolygonToRegion(cell, regionPaths, si);
+                result.Add(clipped);
+            }
+
+            ReportProgress(progress, basePercent + weight, stage, $"Computed {seeds.Count:N0} cells");
+            await YieldToUi(token);
             return result;
         }
 
@@ -294,17 +496,27 @@ namespace VoronoiGen.Services
             double roundRadius,
             float chaikinWeight,
             double roundArcTolerance,
-            CancellationToken token)
+            CancellationToken token,
+            IProgress<GenerationProgress>? progress = null,
+            double basePercent = 0,
+            double weight = 1)
         {
             var regionPaths = BuildRegionPaths(workOuter, workHoles, ignoreHoles);
             var processed = new List<Polygon>(cells.Count);
 
             double effectiveOffset = cellGap > 0 ? -(cellGap * 0.5) : 0;
+            var reportEvery = Math.Max(1, cells.Count / 100);
 
-            foreach (var cell in cells)
+            for (int cellIndex = 0; cellIndex < cells.Count; cellIndex++)
             {
                 token.ThrowIfCancellationRequested();
 
+                if (cellIndex == 0 || (cellIndex % reportEvery) == 0)
+                {
+                    ReportProgress(progress, basePercent + (weight * (cellIndex / (double)Math.Max(1, cells.Count))), "Processing cells", $"Cell {cellIndex + 1:N0} of {cells.Count:N0}");
+                }
+
+                var cell = cells[cellIndex];
                 var poly = cell.Points;
 
                 // 1) Apply gap as an inset; we’ll use round-corner smoothing afterward.
@@ -371,7 +583,117 @@ namespace VoronoiGen.Services
                 processed.Add(clipped);
             }
 
+            ReportProgress(progress, basePercent + weight, "Processing cells", $"Kept {processed.Count:N0} cells");
             return processed;
+        }
+
+        private static async Task<List<Polygon>> PostProcessCellsAsync(
+            List<Polygon> cells,
+            Polygon workOuter,
+            List<Polygon>? workHoles,
+            bool ignoreHoles,
+            double cellGap,
+            int smoothIterations,
+            double minCellArea,
+            double maxAspectRatio,
+            double roundRadius,
+            float chaikinWeight,
+            double roundArcTolerance,
+            CancellationToken token,
+            IProgress<GenerationProgress>? progress = null,
+            double basePercent = 0,
+            double weight = 1)
+        {
+            var regionPaths = BuildRegionPaths(workOuter, workHoles, ignoreHoles);
+            var processed = new List<Polygon>(cells.Count);
+
+            double effectiveOffset = cellGap > 0 ? -(cellGap * 0.5) : 0;
+            var reportEvery = Math.Max(1, cells.Count / 100);
+
+            for (int cellIndex = 0; cellIndex < cells.Count; cellIndex++)
+            {
+                token.ThrowIfCancellationRequested();
+
+                if (cellIndex == 0 || (cellIndex % reportEvery) == 0)
+                {
+                    ReportProgress(progress, basePercent + (weight * (cellIndex / (double)Math.Max(1, cells.Count))), "Processing cells", $"Cell {cellIndex + 1:N0} of {cells.Count:N0}");
+                    await YieldToUi(token);
+                }
+
+                var cell = cells[cellIndex];
+                var poly = cell.Points;
+
+                if (effectiveOffset != 0 && poly.Count >= 3)
+                {
+                    poly = GeometryUtils.OffsetPolygon(new Polygon(poly), effectiveOffset).Points;
+                }
+
+                bool wantRound = (smoothIterations > 0) || (roundRadius > 0);
+                if (wantRound && poly.Count >= 3)
+                {
+                    double avgLen = AverageEdgeLength(poly);
+
+                    double baseR = (cellGap > 0)
+                        ? Math.Abs(effectiveOffset)
+                        : Math.Max(1e-3, 0.15 * avgLen);
+
+                    double r = (roundRadius > 0)
+                        ? roundRadius
+                        : Math.Clamp(smoothIterations * baseR, 0, 0.45 * avgLen);
+
+                    if (r > 1e-5)
+                    {
+                        double arcTol = (roundArcTolerance > 0)
+                            ? roundArcTolerance
+                            : Math.Max(0.25, r / 6.0);
+
+                        poly = RoundCornersOpening(poly, r, arcTol);
+                        poly = ChaikinSmooth(poly, 1, Math.Clamp(chaikinWeight, 0.01f, 0.49f));
+                    }
+                    else
+                    {
+                        poly = ChaikinSmooth(poly, Math.Max(0, smoothIterations), Math.Clamp(chaikinWeight, 0.01f, 0.49f));
+                    }
+                }
+
+                var clipped = ClipPolygonToRegion(poly, regionPaths, seed: cell.Centroid());
+                if ((cellIndex & 3) == 0)
+                {
+                    await YieldToUi(token);
+                }
+
+                if (minCellArea > 0)
+                {
+                    double area = Math.Abs(clipped.SignedArea());
+                    if (area < minCellArea)
+                        continue;
+                }
+
+                if (maxAspectRatio > 0)
+                {
+                    double aspectRatio = CalculateAspectRatio(clipped);
+                    if (aspectRatio > maxAspectRatio)
+                        continue;
+                }
+
+                processed.Add(clipped);
+            }
+
+            ReportProgress(progress, basePercent + weight, "Processing cells", $"Kept {processed.Count:N0} cells");
+            await YieldToUi(token);
+            return processed;
+        }
+
+        private static void ReportProgress(IProgress<GenerationProgress>? progress, double percent, string stage, string detail)
+        {
+            progress?.Report(new GenerationProgress(Math.Clamp(percent, 0, 1), stage, detail));
+        }
+
+        private static async Task YieldToUi(CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            await Task.Delay(1, token);
+            token.ThrowIfCancellationRequested();
         }
 
         private static List<Vector2> ChaikinSmooth(IReadOnlyList<Vector2> pts, int iterations, float weight)

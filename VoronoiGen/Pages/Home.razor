@@ -1,6 +1,7 @@
 ﻿@page "/"
 @using VoronoiGen.Models
 @using VoronoiGen.Services
+@using System.Diagnostics
 @using System.Numerics
 @using System.Linq
 @using System.Threading
@@ -17,6 +18,14 @@
 
         <section class="upload-section">
             <InputFile id="fileInput" OnChange="OnFileSelected" accept=".dxf" />
+            <label class="upload-option" title="Treat connected LINE entities as closed contours during import.">
+                Close line contours
+                <input type="checkbox" @bind="CloseLineContoursOnImport" disabled="@IsBusy" />
+            </label>
+            <label class="upload-option" title="Scale offsets, spacing, smoothing, and seed count from the loaded DXF size.">
+                Auto-scale parameters
+                <input type="checkbox" @bind="AutoScaleParametersOnImport" disabled="@IsBusy" />
+            </label>
             @if (_import?.Outer is null)
             {
                 <p class="upload-status">📁 Upload a DXF file to begin</p>
@@ -28,6 +37,14 @@
                     <div class="status-details">
                         <span>Area: <code>@Math.Round(_import!.Outer.Area(), 2)</code></span>
                         <span>Holes: <code>@_import!.Holes.Count</code></span>
+                        @if (_lastImportUsedLineContourClosing)
+                        {
+                            <span>Line contours: <code>closed</code></span>
+                        }
+                        @if (!string.IsNullOrWhiteSpace(_lastAutoScaleProfile))
+                        {
+                            <span>Profile: <code>@_lastAutoScaleProfile</code></span>
+                        }
                     </div>
                 </div>
             }
@@ -40,15 +57,15 @@
                 <h4 class="group-title">Boundary</h4>
                 <label title="Enable / disable hole usage.">
                     Use Holes
-                    <input type="checkbox" @bind="UseHoles" disabled="@IsGenerating" />
+                    <input type="checkbox" @bind="UseHoles" disabled="@IsBusy" />
                 </label>
                 <label title="Inset margin from outer boundary (shrinks free area).">
                     Outer Offset
-                    <input type="number" step="0.5" min="0" @bind="OuterOffset" disabled="@IsGenerating" />
+                    <input type="number" step="0.5" min="0" @bind="OuterOffset" disabled="@IsBusy" />
                 </label>
                 <label title="Grow hole outlines outward (reduces free area).">
                     Inner Offset
-                    <input type="number" step="0.5" min="0" @bind="InnerOffset" disabled="@IsGenerating" />
+                    <input type="number" step="0.5" min="0" @bind="InnerOffset" disabled="@IsBusy" />
                 </label>
             </div>
 
@@ -56,19 +73,19 @@
                 <h4 class="group-title">Seed Generation</h4>
                 <label title="Poisson disk radius (larger = fewer seeds).">
                     Min Spacing (Poisson)
-                    <input type="number" step="0.5" min="1" @bind="PoissonRadius" disabled="@IsGenerating" />
+                    <input type="number" step="0.5" min="1" @bind="PoissonRadius" disabled="@IsBusy" />
                 </label>
                 <label title="Fallback random seed count if Poisson fails.">
                     Seed Count
-                    <input type="number" min="1" max="5000" @bind="SeedCount" disabled="@IsGenerating" />
+                    <input type="number" min="1" max="5000" @bind="SeedCount" disabled="@IsBusy" />
                 </label>
                 <label title="Deterministic RNG seed.">
                     RNG Seed
-                    <input type="number" @bind="RngSeed" disabled="@IsGenerating" />
+                    <input type="number" @bind="RngSeed" disabled="@IsBusy" />
                 </label>
                 <label title="Lloyd relaxation iterations (0 = none).">
                     Lloyd Iterations
-                    <input type="number" min="0" max="10" @bind="LloydIterations" disabled="@IsGenerating" />
+                    <input type="number" min="0" max="10" @bind="LloydIterations" disabled="@IsBusy" />
                 </label>
             </div>
 
@@ -76,34 +93,34 @@
                 <h4 class="group-title">Cell Processing</h4>
                 <label title="Gap between cells (shrinks each cell).">
                     Cell Gap
-                    <input type="number" step="0.5" min="0" @bind="CellGap" disabled="@IsGenerating" />
+                    <input type="number" step="0.5" min="0" @bind="CellGap" disabled="@IsBusy" />
                 </label>
                 <label title="Smoothing iterations (affects automatic radius estimation when Corner Radius = 0).">
                     Smooth Iterations
-                    <input type="number" min="0" max="10" @bind="SmoothIterations" disabled="@IsGenerating" />
+                    <input type="number" min="0" max="10" @bind="SmoothIterations" disabled="@IsBusy" />
                 </label>
                 <label title="Filter out cells below this area (0 disables).">
                     Min Cell Area
-                    <input type="number" step="1" min="0" @bind="MinCellArea" disabled="@IsGenerating" />
+                    <input type="number" step="1" min="0" @bind="MinCellArea" disabled="@IsBusy" />
                 </label>
                 <label title="Max width/height (or height/width) ratio (0 disables).">
                     Max Aspect Ratio
-                    <input type="number" step="0.5" min="0" @bind="MaxAspectRatio" disabled="@IsGenerating" />
+                    <input type="number" step="0.5" min="0" @bind="MaxAspectRatio" disabled="@IsBusy" />
                 </label>
 
                 <div class="sub-group">
                     <h5 class="sub-title">Rounding / Smoothing</h5>
                     <label title="Explicit corner fillet radius in drawing units (0 = auto based on Smooth Iterations & gap).">
                         Corner Radius
-                        <input type="number" step="0.5" min="0" @bind="RoundRadius" disabled="@IsGenerating" />
+                        <input type="number" step="0.5" min="0" @bind="RoundRadius" disabled="@IsBusy" />
                     </label>
                     <label title="Chaikin weight (0.01–0.49). Higher = more round. Applied lightly after radius rounding.">
                         Chaikin Weight
-                        <input type="number" step="0.01" min="0.01" max="0.49" @bind="ChaikinWeight" disabled="@IsGenerating" />
+                        <input type="number" step="0.01" min="0.01" max="0.49" @bind="ChaikinWeight" disabled="@IsBusy" />
                     </label>
                     <label title="Arc tessellation tolerance for rounded corners (0 = auto). Lower = smoother (more points).">
                         Arc Tolerance
-                        <input type="number" step="0.25" min="0" @bind="RoundArcTolerance" disabled="@IsGenerating" />
+                        <input type="number" step="0.25" min="0" @bind="RoundArcTolerance" disabled="@IsBusy" />
                     </label>
                 </div>
             </div>
@@ -112,7 +129,7 @@
                 <h4 class="group-title">Export Geometry</h4>
                 <label title="Choose whether DXF export uses original polygon edges or spline-fitted curves.">
                     Mode
-                    <select @bind="ExportMode" disabled="@IsGenerating">
+                    <select @bind="ExportMode" disabled="@IsBusy">
                         <option value="Polylines">Polylines</option>
                         <option value="Splines">Splines</option>
                     </select>
@@ -122,26 +139,26 @@
                 {
                     <label title="Catmull–Rom tension (0 = loose, 1 = tight).">
                         Spline Tension
-                        <input type="number" min="0" max="1" step="0.05" @bind="SplineTension" disabled="@IsGenerating" />
+                        <input type="number" min="0" max="1" step="0.05" @bind="SplineTension" disabled="@IsBusy" />
                     </label>
                     <label title="Fit-point samples per cubic segment for DXF SPLINE (higher = smoother).">
                         Samples / Segment
-                        <input type="number" min="2" max="32" step="1" @bind="SplineSamplesPerBezier" disabled="@IsGenerating" />
+                        <input type="number" min="2" max="32" step="1" @bind="SplineSamplesPerBezier" disabled="@IsBusy" />
                     </label>
                 }
             </div>
         </section>
 
         <section class="actions">
-            <button class="btn-primary" @onclick="Generate" disabled="@(_import is null || IsGenerating)">
-                @(IsGenerating ? "⏳ Generating…" : "▶️ Generate")
+            <button class="btn-primary" @onclick="Generate" disabled="@(_import is null || IsBusy)">
+                @(IsBusy ? "⏳ Working…" : "▶️ Generate")
             </button>
-            <button class="btn-success" @onclick="ExportDxf" disabled="@(Result is null || IsGenerating)">
+            <button class="btn-success" @onclick="ExportDxf" disabled="@(Result is null || IsBusy)">
                 @(ExportMode == ExportGeometryMode.Splines ? "🎛 Export Splines" : "📐 Export Polylines")
             </button>
         </section>
 
-        @if (IsGenerating)
+        @if (IsBusy)
         {
             <div class="gen-status">
                 <div class="spinner"></div>
@@ -175,9 +192,51 @@
     </main>
 </div>
 
+@if (IsBusy)
+{
+    <div class="generation-modal-backdrop" role="presentation">
+        <div class="generation-modal" role="dialog" aria-modal="true" aria-labelledby="generation-title">
+            <div class="generation-modal__header">
+                <div>
+                    <h2 id="generation-title">Generating Voronoi</h2>
+                    <p>@_generationProgress.Stage</p>
+                </div>
+                <button class="btn-danger generation-modal__cancel" @onclick="CancelGeneration" disabled="@(!IsGenerating)">
+                    Cancel
+                </button>
+            </div>
+
+            <div class="generation-progress">
+                <div class="generation-progress__bar">
+                    <div style="width: @ProgressPercentText"></div>
+                </div>
+                <div class="generation-progress__meta">
+                    <span>@ProgressPercentText</span>
+                    <span>@_generationProgress.Detail</span>
+                </div>
+            </div>
+
+            <div class="generation-stats">
+                <span>
+                    <strong>Elapsed</strong>
+                    @ElapsedText
+                </span>
+                <span>
+                    <strong>Estimated left</strong>
+                    @EstimatedRemainingText
+                </span>
+            </div>
+        </div>
+    </div>
+}
+
 @code {
     private DxfImport? _import;
     private List<Vector2> _seeds = new();
+    private bool CloseLineContoursOnImport { get; set; }
+    private bool AutoScaleParametersOnImport { get; set; } = true;
+    private string? _lastAutoScaleProfile;
+    private bool _lastImportUsedLineContourClosing;
 
     // Boundary options
     private bool UseHoles { get; set; } = true;
@@ -218,64 +277,165 @@
 
     public VoronoiResult? Result { get; set; }
     private bool IsGenerating { get; set; }
+    private bool IsBusy => IsGenerating;
     private CancellationTokenSource? _genCts;
+    private GenerationProgress _generationProgress = new(0, "Ready", "");
+    private Stopwatch _generationStopwatch = new();
+
+    private string ProgressPercentText => $"{Math.Clamp(_generationProgress.Percent, 0, 1) * 100:0}%";
+    private string ElapsedText => FormatDuration(_generationStopwatch.Elapsed);
+    private string EstimatedRemainingText
+    {
+        get
+        {
+            var percent = Math.Clamp(_generationProgress.Percent, 0, 1);
+            if (percent < 0.03 || !_generationStopwatch.IsRunning)
+                return "Calculating";
+
+            var remainingSeconds = _generationStopwatch.Elapsed.TotalSeconds * ((1 - percent) / percent);
+            if (double.IsNaN(remainingSeconds) || double.IsInfinity(remainingSeconds))
+                return "Calculating";
+
+            return FormatDuration(TimeSpan.FromSeconds(Math.Max(0, remainingSeconds)));
+        }
+    }
 
     private async Task OnFileSelected(InputFileChangeEventArgs e)
     {
         var file = e.File;
-        await using var stream = file.OpenReadStream(50 * 1024 * 1024);
-        using var ms = new MemoryStream();
-        await stream.CopyToAsync(ms);
         try
         {
-            _import = DxfLoader.Load(ms.ToArray(), chordTolerance: 0, simplifyTolerance: 0.2);
+            await using var stream = file.OpenReadStream(50 * 1024 * 1024);
+            using var ms = new MemoryStream();
+            await stream.CopyToAsync(ms);
+
+            _lastImportUsedLineContourClosing = false;
+            _import = LoadDxfWithFallback(ms.ToArray());
+            if (AutoScaleParametersOnImport)
+            {
+                _lastAutoScaleProfile = ApplyAutoScaledParameters(_import);
+            }
+            else
+            {
+                _lastAutoScaleProfile = null;
+            }
             Result = null;
             StateHasChanged();
         }
-        catch
+        catch (Exception ex)
         {
             _import = null;
             Result = null;
+            _lastImportUsedLineContourClosing = false;
             StateHasChanged();
+            await ShowDxfImportErrorAsync(file, ex);
         }
+    }
+
+    private async Task ShowDxfImportErrorAsync(IBrowserFile file, Exception exception)
+    {
+        var root = exception.GetBaseException();
+        var message = string.Join(Environment.NewLine, new[]
+        {
+            "DXF import failed.",
+            "",
+            $"File: {file.Name}",
+            $"Size: {FormatFileSize(file.Size)}",
+            $"Close line contours: {(CloseLineContoursOnImport ? "On" : "Off")}",
+            $"Auto-scale parameters: {(AutoScaleParametersOnImport ? "On" : "Off")}",
+            $"Error: {root.GetType().Name}",
+            "",
+            root.Message
+        });
+
+        await JS.InvokeVoidAsync("alert", message);
+    }
+
+    private DxfImport LoadDxfWithFallback(byte[] bytes)
+    {
+        if (CloseLineContoursOnImport)
+        {
+            _lastImportUsedLineContourClosing = true;
+            return DxfLoader.Load(bytes, chordTolerance: 0, simplifyTolerance: 0.2, closeLineContours: true);
+        }
+
+        try
+        {
+            return DxfLoader.Load(bytes, chordTolerance: 0, simplifyTolerance: 0.2, closeLineContours: false);
+        }
+        catch (InvalidOperationException ex) when (IsNoClosedOutlineError(ex))
+        {
+            CloseLineContoursOnImport = true;
+            _lastImportUsedLineContourClosing = true;
+            return DxfLoader.Load(bytes, chordTolerance: 0, simplifyTolerance: 0.2, closeLineContours: true);
+        }
+    }
+
+    private static bool IsNoClosedOutlineError(Exception exception)
+    {
+        return exception.Message.Contains("No closed outlines found", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string FormatFileSize(long bytes)
+    {
+        const double kb = 1024;
+        const double mb = kb * 1024;
+
+        return bytes >= mb
+            ? $"{bytes / mb:0.##} MB"
+            : $"{bytes / kb:0.##} KB";
     }
 
     private async Task Generate()
     {
-        if (_import is null || IsGenerating) return;
+        if (_import is null || IsBusy) return;
         IsGenerating = true;
+        Result = null;
+        _generationProgress = new GenerationProgress(0, "Starting", "Preparing generation");
+        _generationStopwatch.Restart();
         _genCts?.Dispose();
         _genCts = new CancellationTokenSource();
         var token = _genCts.Token;
         StateHasChanged();
-        await Task.Yield();
+        await Task.Delay(1);
 
         try
         {
             var boundary = _import.Outer;
             var holes = UseHoles ? _import.Holes : new List<Polygon>();
+            var progress = new Progress<GenerationProgress>(ReportGenerationProgress);
+            var seedProgress = ScaleProgress(progress, 0.02, 0.08);
+            var computeProgress = ScaleProgress(progress, 0.10, 0.90);
 
-            _seeds = SeedGenerator.GeneratePoisson(boundary, holes, !UseHoles, PoissonRadius, RngSeed);
+            token.ThrowIfCancellationRequested();
+
+            _seeds = await SeedGenerator.GeneratePoissonAsync(boundary, holes, !UseHoles, PoissonRadius, RngSeed, maxSamples: SeedCount, token: token, progress: seedProgress);
             if (_seeds.Count == 0 && SeedCount > 0)
-                _seeds = SeedGenerator.GenerateRandom(boundary, holes, !UseHoles, SeedCount, RngSeed);
+            {
+                _seeds = await SeedGenerator.GenerateRandomAsync(boundary, holes, !UseHoles, SeedCount, RngSeed, token, seedProgress);
+            }
 
-            Result = await Task.Run(() =>
-                LloydIterations > 0
-                    ? VoronoiEngine.ComputeWithLloyd(boundary, holes, !UseHoles, _seeds, LloydIterations,
-                        OuterOffset, InnerOffset, CellGap, SmoothIterations, MinCellArea, MaxAspectRatio,
-                        RoundRadius, ChaikinWeight, RoundArcTolerance, token)
-                    : VoronoiEngine.Compute(boundary, holes, !UseHoles, _seeds,
-                        OuterOffset, InnerOffset, CellGap, SmoothIterations, MinCellArea, MaxAspectRatio,
-                        RoundRadius, ChaikinWeight, RoundArcTolerance, token),
-                token);
+            token.ThrowIfCancellationRequested();
+
+            Result = LloydIterations > 0
+                ? await VoronoiEngine.ComputeWithLloydAsync(boundary, holes, !UseHoles, _seeds, LloydIterations,
+                    OuterOffset, InnerOffset, CellGap, SmoothIterations, MinCellArea, MaxAspectRatio,
+                    RoundRadius, ChaikinWeight, RoundArcTolerance, token, computeProgress)
+                : await VoronoiEngine.ComputeAsync(boundary, holes, !UseHoles, _seeds,
+                    OuterOffset, InnerOffset, CellGap, SmoothIterations, MinCellArea, MaxAspectRatio,
+                    RoundRadius, ChaikinWeight, RoundArcTolerance, token, computeProgress);
         }
-        catch (OperationCanceledException) { }
+        catch (OperationCanceledException)
+        {
+            Result = null;
+        }
         catch
         {
             Result = null;
         }
         finally
         {
+            _generationStopwatch.Stop();
             IsGenerating = false;
             _genCts?.Dispose();
             _genCts = null;
@@ -283,9 +443,90 @@
         }
     }
 
+    private string ApplyAutoScaledParameters(DxfImport import)
+    {
+        var bounds = import.Outer.GetBounds();
+        var diagonal = Math.Sqrt((bounds.Width * bounds.Width) + (bounds.Height * bounds.Height));
+        var area = Math.Max(import.Outer.Area(), 1);
+        var contourPoints = import.Outer.Points.Count + import.Holes.Sum(h => h.Points.Count);
+
+        if (diagonal <= 0 || double.IsNaN(diagonal) || double.IsInfinity(diagonal))
+        {
+            return "Default";
+        }
+
+        var sizeProfile = diagonal switch
+        {
+            < 100 => "Small",
+            < 1_000 => "Medium",
+            < 5_000 => "Large",
+            _ => "Very large"
+        };
+
+        var targetSeeds = sizeProfile switch
+        {
+            "Small" => 140,
+            "Medium" => 200,
+            "Large" => 240,
+            _ => 260
+        };
+
+        if (contourPoints > 1_500)
+            targetSeeds = Math.Min(targetSeeds, 180);
+        if (contourPoints > 3_000)
+            targetSeeds = Math.Min(targetSeeds, 140);
+
+        SeedCount = Math.Clamp(targetSeeds, 50, 400);
+        PoissonRadius = (float)Math.Max(1, Math.Sqrt(area / SeedCount) * 0.9);
+        OuterOffset = RoundToUsefulStep(diagonal * 0.01);
+        InnerOffset = RoundToUsefulStep(diagonal * 0.006);
+        CellGap = RoundToUsefulStep(diagonal * 0.004);
+        MinCellArea = 0;
+        MaxAspectRatio = 0;
+        RoundRadius = 0;
+        RoundArcTolerance = RoundToUsefulStep(diagonal * 0.0004);
+        LloydIterations = contourPoints > 1_500 || sizeProfile == "Very large" ? 1 : 2;
+        SmoothIterations = contourPoints > 1_500 || sizeProfile == "Very large" ? 1 : 2;
+
+        return contourPoints > 800
+            ? $"{sizeProfile}, {SeedCount} seeds, {contourPoints:N0} pts"
+            : $"{sizeProfile}, {SeedCount} seeds";
+    }
+
+    private static double RoundToUsefulStep(double value)
+    {
+        if (value <= 0) return 0;
+        if (value < 1) return Math.Round(value, 2);
+        if (value < 10) return Math.Round(value * 2, MidpointRounding.AwayFromZero) / 2;
+        return Math.Round(value, MidpointRounding.AwayFromZero);
+    }
+
+    private void ReportGenerationProgress(GenerationProgress progress)
+    {
+        if (progress.Percent >= _generationProgress.Percent || progress.Stage != _generationProgress.Stage)
+        {
+            _generationProgress = progress;
+            _ = InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private static IProgress<GenerationProgress> ScaleProgress(IProgress<GenerationProgress> progress, double offset, double scale)
+    {
+        return new Progress<GenerationProgress>(p =>
+            progress.Report(p with { Percent = offset + (Math.Clamp(p.Percent, 0, 1) * scale) }));
+    }
+
+    private static string FormatDuration(TimeSpan duration)
+    {
+        if (duration.TotalHours >= 1)
+            return $"{(int)duration.TotalHours}:{duration.Minutes:00}:{duration.Seconds:00}";
+
+        return $"{duration.Minutes:00}:{duration.Seconds:00}";
+    }
+
     private async Task ExportDxf()
     {
-        if (Result is null || IsGenerating) return;
+        if (Result is null || IsBusy) return;
         var holes = UseHoles ? _import?.Holes : null;
 
         byte[] bytes = ExportMode == ExportGeometryMode.Splines

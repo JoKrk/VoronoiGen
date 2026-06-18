@@ -11,8 +11,6 @@ builder.Services.AddScoped(sp => new HttpClient { BaseAddress = new Uri(builder.
 await builder.Build().RunAsync();
 
 
-//TODO
-//google adsense setup
 //look at smoothing voronoi edges algo
 //look at aspect ratio bias for voronoi
 //add more seo

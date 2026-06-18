@@ -12,6 +12,7 @@ namespace VoronoiGen.Services
     // Loads DXF file bytes entirely on the client and extracts an outer boundary with optional inner holes.
     // - Uses IxMilia.Dxf to parse entities
     // - Collects closed LWPOLYLINE and POLYLINE (2D) loops and Circles
+    // - Optionally stitches connected LINE entities into closed contours
     // - Approximates bulge arcs using a chord tolerance
     // - Handles SPLINE, ARC, and ELLIPSE entities with high fidelity
     // - Picks the largest-area loop as outer boundary
@@ -19,7 +20,7 @@ namespace VoronoiGen.Services
     // - Optionally simplifies with Douglas–Peucker
     public static class DxfLoader
     {
-        public static DxfImport Load(byte[] bytes, double chordTolerance = 0.1, double simplifyTolerance = 0.0)
+        public static DxfImport Load(byte[] bytes, double chordTolerance = 0.1, double simplifyTolerance = 0.0, bool closeLineContours = false)
         {
             if (bytes is null || bytes.Length == 0)
                 throw new ArgumentException("DXF bytes are empty");
@@ -99,8 +100,13 @@ namespace VoronoiGen.Services
                 }
             }
 
+            if (closeLineContours)
+            {
+                rings.AddRange(BuildClosedLineContours(dxf.Entities.OfType<DxfLine>(), chordTolerance));
+            }
+
             if (rings.Count == 0)
-                throw new InvalidOperationException("No closed outlines found in DXF. Expected closed LWPOLYLINE/POLYLINE, SPLINE, CIRCLE, ELLIPSE, or ARC.");
+                throw new InvalidOperationException("No closed outlines found in DXF. Expected closed LWPOLYLINE/POLYLINE, SPLINE, CIRCLE, ELLIPSE, ARC, or connected LINE contours when line-contour closing is enabled.");
 
             // Convert to Polygon, ensure no duplicate last point and orient CCW for now (we'll orient holes later)
             var polys = rings
@@ -180,6 +186,110 @@ namespace VoronoiGen.Services
             // Remove duplicate last point if equal to first
             return NormalizeClosed(result);
         }
+
+        private static List<List<Vector2>> BuildClosedLineContours(IEnumerable<DxfLine> lines, double tolerance)
+        {
+            var joinTolerance = Math.Max(tolerance, 1e-6);
+            var unused = lines
+                .Select(l => new LineSegment(
+                    new Vector2((float)l.P1.X, (float)l.P1.Y),
+                    new Vector2((float)l.P2.X, (float)l.P2.Y)))
+                .Where(s => IsFinite(s.Start) && IsFinite(s.End) && Distance(s.Start, s.End) > joinTolerance)
+                .ToList();
+
+            var rings = new List<List<Vector2>>();
+
+            while (unused.Count > 0)
+            {
+                var current = unused[^1];
+                unused.RemoveAt(unused.Count - 1);
+
+                var contour = new List<Vector2> { current.Start, current.End };
+                var extended = true;
+
+                while (extended)
+                {
+                    extended = TryAppendConnectedSegment(contour, unused, joinTolerance)
+                        || TryPrependConnectedSegment(contour, unused, joinTolerance);
+                }
+
+                if (contour.Count >= 3 && Distance(contour[0], contour[^1]) <= joinTolerance)
+                {
+                    var normalized = NormalizeClosed(contour);
+                    if (normalized.Count >= 3 && Math.Abs(SignedArea(normalized)) > joinTolerance * joinTolerance)
+                    {
+                        rings.Add(normalized);
+                    }
+                }
+            }
+
+            return rings;
+        }
+
+        private static bool TryAppendConnectedSegment(List<Vector2> contour, List<LineSegment> unused, double tolerance)
+        {
+            var end = contour[^1];
+            for (int i = unused.Count - 1; i >= 0; i--)
+            {
+                var segment = unused[i];
+                if (Distance(end, segment.Start) <= tolerance)
+                {
+                    contour.Add(segment.End);
+                    unused.RemoveAt(i);
+                    return true;
+                }
+
+                if (Distance(end, segment.End) <= tolerance)
+                {
+                    contour.Add(segment.Start);
+                    unused.RemoveAt(i);
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool TryPrependConnectedSegment(List<Vector2> contour, List<LineSegment> unused, double tolerance)
+        {
+            var start = contour[0];
+            for (int i = unused.Count - 1; i >= 0; i--)
+            {
+                var segment = unused[i];
+                if (Distance(start, segment.End) <= tolerance)
+                {
+                    contour.Insert(0, segment.Start);
+                    unused.RemoveAt(i);
+                    return true;
+                }
+
+                if (Distance(start, segment.Start) <= tolerance)
+                {
+                    contour.Insert(0, segment.End);
+                    unused.RemoveAt(i);
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static double SignedArea(IReadOnlyList<Vector2> pts)
+        {
+            double area = 0;
+            for (int i = 0, j = pts.Count - 1; i < pts.Count; j = i++)
+            {
+                area += (double)(pts[j].X * pts[i].Y - pts[i].X * pts[j].Y);
+            }
+
+            return area * 0.5;
+        }
+
+        private static double Distance(Vector2 a, Vector2 b) => Vector2.Distance(a, b);
+
+        private static bool IsFinite(Vector2 point) => float.IsFinite(point.X) && float.IsFinite(point.Y);
+
+        private readonly record struct LineSegment(Vector2 Start, Vector2 End);
 
         private static List<Vector2> ApproximateCircle(DxfCircle c, double chordTolerance)
         {

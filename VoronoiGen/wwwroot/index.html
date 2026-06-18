@@ -62,25 +62,8 @@
     <link rel="icon" type="image/png" sizes="96x96" href="/icons/favicon-96x96.png" />
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
     <link rel="manifest" href="/icons/site.webmanifest" />
-
-    <!-- Preconnect to improve performance -->
-    <link rel="preconnect" href="https://pagead2.googlesyndication.com" />
 </head>
 <body>
-    <!-- Cookie Consent Banner -->
-    <div id="consent-banner" style="display:none; position:fixed; bottom:0; left:0; right:0; background:#2c2c2c; color:#fff; padding:16px 20px; z-index:9999; box-shadow:0 -2px 10px rgba(0,0,0,0.3); font-family:system-ui,-apple-system,sans-serif;">
-        <div style="max-width:1200px; margin:0 auto; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px;">
-            <p style="margin:0; flex:1; min-width:250px;">
-                🍪 We use cookies and ads to keep this tool free.
-                <a href="/privacy.html" style="color:#4af; text-decoration:underline;">Privacy Policy</a>
-            </p>
-            <div style="display:flex; gap:10px;">
-                <button onclick="acceptConsent()" style="background:#4CAF50; color:#fff; border:none; padding:8px 20px; border-radius:4px; cursor:pointer; font-weight:600;">Accept</button>
-                <button onclick="rejectConsent()" style="background:#666; color:#fff; border:none; padding:8px 20px; border-radius:4px; cursor:pointer;">Reject</button>
-            </div>
-        </div>
-    </div>
-
     <!-- Loading Content (visible to bots and during WASM load) -->
     <div id="app">
         <div class="loading-content" style="max-width:1200px; margin:60px auto; padding:20px; font-family:system-ui,-apple-system,sans-serif; line-height:1.6;">
@@ -90,19 +73,19 @@
                     Create stunning Voronoi diagrams from DXF files instantly. No signup required.
                 </p>
                 <div style="display:inline-block; padding:12px 24px; background:#f0f0f0; border-radius:8px;">
-                    <span style="animation:pulse 1.5s ease-in-out infinite;">⚡ Loading tool...</span>
+                    <span style="animation:pulse 1.5s ease-in-out infinite;">Loading tool...</span>
                 </div>
             </header>
 
             <section style="margin-bottom:40px;">
                 <h2 style="font-size:1.8rem; margin-bottom:16px; color:#333;">Features</h2>
                 <ul style="list-style:none; padding:0;">
-                    <li style="padding:8px 0; border-bottom:1px solid #eee;">✅ Upload DXF files and extract boundaries automatically</li>
-                    <li style="padding:8px 0; border-bottom:1px solid #eee;">✅ Generate Voronoi patterns with adjustable parameters</li>
-                    <li style="padding:8px 0; border-bottom:1px solid #eee;">✅ Poisson disk sampling for uniform distribution</li>
-                    <li style="padding:8px 0; border-bottom:1px solid #eee;">✅ Lloyd relaxation for smoother patterns</li>
-                    <li style="padding:8px 0; border-bottom:1px solid #eee;">✅ Export to DXF for laser cutting and CAD</li>
-                    <li style="padding:8px 0;">✅ Live preview with real-time parameter adjustments</li>
+                    <li style="padding:8px 0; border-bottom:1px solid #eee;">Upload DXF files and extract boundaries automatically</li>
+                    <li style="padding:8px 0; border-bottom:1px solid #eee;">Generate Voronoi patterns with adjustable parameters</li>
+                    <li style="padding:8px 0; border-bottom:1px solid #eee;">Poisson disk sampling for uniform distribution</li>
+                    <li style="padding:8px 0; border-bottom:1px solid #eee;">Lloyd relaxation for smoother patterns</li>
+                    <li style="padding:8px 0; border-bottom:1px solid #eee;">Export to DXF for laser cutting and CAD</li>
+                    <li style="padding:8px 0;">Live preview with real-time parameter adjustments</li>
                 </ul>
             </section>
 
@@ -120,11 +103,11 @@
                 <h2 style="font-size:1.8rem; margin-bottom:16px; color:#333;">Use Cases</h2>
                 <p style="margin-bottom:12px;">Perfect for:</p>
                 <ul style="padding-left:20px;">
-                    <li>🔥 Laser cutting and CNC machining patterns</li>
-                    <li>🎨 Generative art and creative design</li>
-                    <li>🏗️ Architectural tessellations and facades</li>
-                    <li>🎮 Game development and procedural generation</li>
-                    <li>📐 CAD design and engineering</li>
+                    <li>Laser cutting and CNC machining patterns</li>
+                    <li>Generative art and creative design</li>
+                    <li>Architectural tessellations and facades</li>
+                    <li>Game development and procedural generation</li>
+                    <li>CAD design and engineering</li>
                 </ul>
             </section>
 
@@ -146,51 +129,8 @@
     <div id="blazor-error-ui" style="background:lightyellow; position:fixed; bottom:0; left:0; right:0; padding:0.6rem 1.25rem; z-index:10000;">
         An unhandled error has occurred.
         <a href="" class="reload">Reload</a>
-        <a class="dismiss">🗙</a>
+        <a class="dismiss">Dismiss</a>
     </div>
-
-    <!-- Consent Management Script -->
-    <script>
-        function acceptConsent() {
-            localStorage.setItem('consent', 'granted');
-            document.getElementById('consent-banner').style.display = 'none';
-            loadAds();
-        }
-
-        function rejectConsent() {
-            localStorage.setItem('consent', 'denied');
-            document.getElementById('consent-banner').style.display = 'none';
-        }
-
-        function loadAds() {
-            if (window.__DEBUG__) return; // skip loading AdSense in debug
-            const script = document.createElement('script');
-            script.src = 'https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-7586369298871197';
-            script.crossOrigin = 'anonymous';
-            script.async = true;
-            document.head.appendChild(script);
-
-            // Push ads after script loads
-            script.onload = () => {
-                const ads = document.querySelectorAll('.adsbygoogle');
-                ads.forEach(ad => {
-                    if (!ad.dataset.adsbygoogleStatus) {
-                        (window.adsbygoogle = window.adsbygoogle || []).push({});
-                    }
-                });
-            };
-        }
-
-        // Check consent status on page load
-        window.addEventListener('DOMContentLoaded', () => {
-            const consent = localStorage.getItem('consent');
-            if (!consent) {
-                document.getElementById('consent-banner').style.display = 'block';
-            } else if (consent === 'granted') {
-                loadAds();
-            }
-        });
-    </script>
 
     <!-- Blazor WASM -->
     <script src="_framework/blazor.webassembly.js"></script>
