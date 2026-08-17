@@ -27,7 +27,7 @@ export function drawVoronoi(canvas, data) {
     const ctx = canvas.getContext('2d');
     const {
         pixelWidth, pixelHeight,
-        boundsLeft, boundsTop,
+        boundsLeft, boundsTop, boundsHeight,
         offsetX, offsetY, scale,
         boundary, originalBoundary,
         cells, cellsBezier,
@@ -43,8 +43,10 @@ export function drawVoronoi(canvas, data) {
     ctx.fillRect(0, 0, pixelWidth, pixelHeight);
 
     ctx.save();
-    ctx.translate(offsetX, offsetY);
-    ctx.scale(scale, scale);
+    // DXF model space is Y-up while canvas pixels are Y-down. Flip only the
+    // drawing transform so the preview matches CAD without changing geometry.
+    ctx.translate(offsetX, offsetY + boundsHeight * scale);
+    ctx.scale(scale, -scale);
     ctx.translate(-boundsLeft, -boundsTop);
 
     // Cells (polyline vs spline)

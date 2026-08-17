@@ -12,7 +12,7 @@ namespace VoronoiGen.Services
     // Loads DXF file bytes entirely on the client and extracts an outer boundary with optional inner holes.
     // - Uses IxMilia.Dxf to parse entities
     // - Collects closed LWPOLYLINE and POLYLINE (2D) loops and Circles
-    // - Optionally stitches connected LINE entities into closed contours
+    // - Optionally stitches connected LINE and ARC entities into closed contours
     // - Approximates bulge arcs using a chord tolerance
     // - Handles SPLINE, ARC, and ELLIPSE entities with high fidelity
     // - Picks the largest-area loop as outer boundary
@@ -59,8 +59,9 @@ namespace VoronoiGen.Services
                     rings.Add(NormalizeClosed(vertices2D));
             }
 
-            // CIRCLE (closed loop)
-            foreach (var c in dxf.Entities.OfType<DxfCircle>())
+            // CIRCLE (closed loop). DxfArc inherits from DxfCircle, so exclude it
+            // explicitly or every arc is incorrectly imported as a full circle.
+            foreach (var c in dxf.Entities.OfType<DxfCircle>().Where(c => c is not DxfArc))
             {
                 var pts = ApproximateCircle(c, chordTolerance);
                 if (pts.Count >= 3)
@@ -102,11 +103,14 @@ namespace VoronoiGen.Services
 
             if (closeLineContours)
             {
-                rings.AddRange(BuildClosedLineContours(dxf.Entities.OfType<DxfLine>(), chordTolerance));
+                rings.AddRange(BuildClosedCurveContours(
+                    dxf.Entities.OfType<DxfLine>(),
+                    dxf.Entities.OfType<DxfArc>(),
+                    chordTolerance));
             }
 
             if (rings.Count == 0)
-                throw new InvalidOperationException("No closed outlines found in DXF. Expected closed LWPOLYLINE/POLYLINE, SPLINE, CIRCLE, ELLIPSE, ARC, or connected LINE contours when line-contour closing is enabled.");
+                throw new InvalidOperationException("No closed outlines found in DXF. Expected closed LWPOLYLINE/POLYLINE, SPLINE, CIRCLE, ELLIPSE, or connected LINE/ARC contours when contour closing is enabled.");
 
             // Convert to Polygon, ensure no duplicate last point and orient CCW for now (we'll orient holes later)
             var polys = rings
@@ -187,14 +191,23 @@ namespace VoronoiGen.Services
             return NormalizeClosed(result);
         }
 
-        private static List<List<Vector2>> BuildClosedLineContours(IEnumerable<DxfLine> lines, double tolerance)
+        private static List<List<Vector2>> BuildClosedCurveContours(
+            IEnumerable<DxfLine> lines,
+            IEnumerable<DxfArc> arcs,
+            double tolerance)
         {
             var joinTolerance = Math.Max(tolerance, 1e-6);
             var unused = lines
-                .Select(l => new LineSegment(
-                    new Vector2((float)l.P1.X, (float)l.P1.Y),
-                    new Vector2((float)l.P2.X, (float)l.P2.Y)))
-                .Where(s => IsFinite(s.Start) && IsFinite(s.End) && Distance(s.Start, s.End) > joinTolerance)
+                .Select(l => new CurveSegment(new List<Vector2>
+                {
+                    new((float)l.P1.X, (float)l.P1.Y),
+                    new((float)l.P2.X, (float)l.P2.Y)
+                }))
+                .Concat(arcs.Select(a => new CurveSegment(ApproximateArc(a, tolerance))))
+                .Where(s => s.Points.Count >= 2
+                    && IsFinite(s.Start)
+                    && IsFinite(s.End)
+                    && Distance(s.Start, s.End) > joinTolerance)
                 .ToList();
 
             var rings = new List<List<Vector2>>();
@@ -204,13 +217,13 @@ namespace VoronoiGen.Services
                 var current = unused[^1];
                 unused.RemoveAt(unused.Count - 1);
 
-                var contour = new List<Vector2> { current.Start, current.End };
+                var contour = new List<Vector2>(current.Points);
                 var extended = true;
 
                 while (extended)
                 {
-                    extended = TryAppendConnectedSegment(contour, unused, joinTolerance)
-                        || TryPrependConnectedSegment(contour, unused, joinTolerance);
+                    extended = TryAppendConnectedCurve(contour, unused, joinTolerance)
+                        || TryPrependConnectedCurve(contour, unused, joinTolerance);
                 }
 
                 if (contour.Count >= 3 && Distance(contour[0], contour[^1]) <= joinTolerance)
@@ -226,7 +239,7 @@ namespace VoronoiGen.Services
             return rings;
         }
 
-        private static bool TryAppendConnectedSegment(List<Vector2> contour, List<LineSegment> unused, double tolerance)
+        private static bool TryAppendConnectedCurve(List<Vector2> contour, List<CurveSegment> unused, double tolerance)
         {
             var end = contour[^1];
             for (int i = unused.Count - 1; i >= 0; i--)
@@ -234,14 +247,15 @@ namespace VoronoiGen.Services
                 var segment = unused[i];
                 if (Distance(end, segment.Start) <= tolerance)
                 {
-                    contour.Add(segment.End);
+                    contour.AddRange(segment.Points.Skip(1));
                     unused.RemoveAt(i);
                     return true;
                 }
 
                 if (Distance(end, segment.End) <= tolerance)
                 {
-                    contour.Add(segment.Start);
+                    for (int pointIndex = segment.Points.Count - 2; pointIndex >= 0; pointIndex--)
+                        contour.Add(segment.Points[pointIndex]);
                     unused.RemoveAt(i);
                     return true;
                 }
@@ -250,7 +264,7 @@ namespace VoronoiGen.Services
             return false;
         }
 
-        private static bool TryPrependConnectedSegment(List<Vector2> contour, List<LineSegment> unused, double tolerance)
+        private static bool TryPrependConnectedCurve(List<Vector2> contour, List<CurveSegment> unused, double tolerance)
         {
             var start = contour[0];
             for (int i = unused.Count - 1; i >= 0; i--)
@@ -258,14 +272,18 @@ namespace VoronoiGen.Services
                 var segment = unused[i];
                 if (Distance(start, segment.End) <= tolerance)
                 {
-                    contour.Insert(0, segment.Start);
+                    contour.InsertRange(0, segment.Points.Take(segment.Points.Count - 1));
                     unused.RemoveAt(i);
                     return true;
                 }
 
                 if (Distance(start, segment.Start) <= tolerance)
                 {
-                    contour.Insert(0, segment.End);
+                    var reversed = segment.Points
+                        .Skip(1)
+                        .Reverse()
+                        .ToList();
+                    contour.InsertRange(0, reversed);
                     unused.RemoveAt(i);
                     return true;
                 }
@@ -289,7 +307,11 @@ namespace VoronoiGen.Services
 
         private static bool IsFinite(Vector2 point) => float.IsFinite(point.X) && float.IsFinite(point.Y);
 
-        private readonly record struct LineSegment(Vector2 Start, Vector2 End);
+        private sealed record CurveSegment(List<Vector2> Points)
+        {
+            public Vector2 Start => Points[0];
+            public Vector2 End => Points[^1];
+        }
 
         private static List<Vector2> ApproximateCircle(DxfCircle c, double chordTolerance)
         {
@@ -758,7 +780,7 @@ namespace VoronoiGen.Services
             }
 
             // CIRCLE extents
-            foreach (var c in dxf.Entities.OfType<DxfCircle>())
+            foreach (var c in dxf.Entities.OfType<DxfCircle>().Where(c => c is not DxfArc))
             {
                 var center = new Vector2((float)c.Center.X, (float)c.Center.Y);
                 float r = (float)c.Radius;

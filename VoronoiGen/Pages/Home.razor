@@ -361,7 +361,20 @@
 
         try
         {
-            return DxfLoader.Load(bytes, chordTolerance: 0, simplifyTolerance: 0.2, closeLineContours: false);
+            var directImport = DxfLoader.Load(bytes, chordTolerance: 0, simplifyTolerance: 0.2, closeLineContours: false);
+
+            // Closed circle holes can make the direct import appear successful even
+            // when the actual outer boundary is a chain of LINE/ARC entities. Try
+            // contour assembly too and prefer it when it discovers a larger outer.
+            var contourImport = DxfLoader.Load(bytes, chordTolerance: 0, simplifyTolerance: 0.2, closeLineContours: true);
+            if (contourImport.Outer.Area() > directImport.Outer.Area() * 1.01)
+            {
+                CloseLineContoursOnImport = true;
+                _lastImportUsedLineContourClosing = true;
+                return contourImport;
+            }
+
+            return directImport;
         }
         catch (InvalidOperationException ex) when (IsNoClosedOutlineError(ex))
         {
